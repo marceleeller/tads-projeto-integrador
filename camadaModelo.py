@@ -3,7 +3,6 @@
 import enum
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import UserMixin # Necessário para o modelo Usuario
-from werkzeug.security import generate_password_hash, check_password_hash # Necessário para métodos de senha
 from datetime import datetime, date # Necessário para tipos de data/datetime
 
 # Inicializa o objeto SQLAlchemy. Ele será associado à instância do Flask depois.
@@ -18,6 +17,10 @@ class StatusSolicitacao(enum.Enum):
     PENDENTE = 'PENDENTE'
     APROVADA = 'APROVADA'
     RECUSADA = 'RECUSADA'
+
+class TipoDeInterese(enum.Enum):
+    TROCA = 'TROCA'
+    DOAÇÃO = 'DOAÇÃO'
 
 # --- Definição dos Modelos do Banco de Dados ---
 
@@ -53,11 +56,12 @@ class Produto(db.Model):
     id_produto = db.Column(db.Integer, primary_key=True, autoincrement=True)
     nome_produto = db.Column(db.String(80), nullable=False)
     descricao = db.Column(db.String(200), nullable=False)
-    status = db.Column(db.Enum(StatusProduto), nullable=False)
-    data_cadastro = db.Column(db.Date, nullable=False, default=date.today)
-    quantidade = db.Column(db.Integer, nullable=False)
-    valor = db.Column(db.Numeric(10, 2), nullable=True)
     id_usuario = db.Column(db.Integer, db.ForeignKey('usuario.id_usuario'), nullable=False)
+    interesse = db.Column(db.Enum(TipoDeInterese), nullable=False)
+    #data_cadastro = db.Column(db.Date, nullable=False, default=date.today)
+    #status = db.Column(db.Enum(StatusProduto), nullable=False)
+    #quantidade = db.Column(db.Integer, nullable=False)
+    #valor = db.Column(db.Numeric(10, 2), nullable=True)
 
     # Relacionamentos
     imagens = db.relationship("Imagem", backref="produto", lazy="dynamic")
@@ -74,25 +78,17 @@ class Usuario(UserMixin, db.Model): # Herda de UserMixin para Flask-Login
     telefone = db.Column(db.String(14), nullable=False)
     email = db.Column(db.String(150), unique=True, nullable=False)
     password_hash = db.Column('senha', db.String(250), nullable=False) # Armazenaremos o hash da senha aqui, mapeando para a coluna 'senha'
-    # confirme_a_sua_senha NÃO deve ser uma coluna no banco. É apenas para validação na entrada de dados.
-    data_cadastro = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
     data_nascimento = db.Column(db.Date, nullable=False)
-
+    #data_cadastro = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    # confirme_a_sua_senha NÃO deve ser uma coluna no banco. É apenas para validação na entrada de dados.
+    
     # Relacionamentos
     enderecos_usuario = db.relationship("EnderecoUsuario", backref="usuario", lazy="dynamic")
     produtos = db.relationship("Produto", backref="usuario", lazy="dynamic")
     mensagens = db.relationship("Mensagem", backref="usuario", lazy="dynamic")
     solicitacoes = db.relationship("Solicitacao", backref="usuario", lazy="dynamic")
-
-    # Métodos para segurança (hashing de senha)
-    def set_password(self, password):
-        """Define a senha do usuário, armazenando um hash."""
-        self.password_hash = generate_password_hash(password)
-
-    def check_password(self, password):
-        """Verifica se a senha fornecida corresponde ao hash armazenado."""
-        return check_password_hash(self.password_hash, password)
-
+    
+    '''
     # Método requerido pelo Flask-Login para obter o ID do usuário como string
     # UserMixin já fornece, mas aqui um exemplo se você precisar sobrescrever
     def get_id(self):
@@ -100,7 +96,7 @@ class Usuario(UserMixin, db.Model): # Herda de UserMixin para Flask-Login
 
     def __repr__(self) -> str:
         return f"<Usuario(id={self.id_usuario}, nome='{self.nome_usuario}', email='{self.email}')>"
-
+    '''
 class EnderecoUsuario(db.Model):
     __tablename__ = 'endereco_usuario'
     id_endereco = db.Column(db.Integer, primary_key=True, autoincrement=True)

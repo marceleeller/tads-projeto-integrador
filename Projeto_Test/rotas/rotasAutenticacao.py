@@ -190,8 +190,7 @@ def login():
             # Retorna os tokens na resposta JSON
             return jsonify({
                 'mensagem': 'Autenticação bem-sucedida',
-                #'access_token': access_token,
-                #'refresh_token': refresh_token # Retorna o token de refresh
+                'access_token': access_token,
             }), 200 # OK
         else:
             # Credenciais inválidas

@@ -1,16 +1,24 @@
-# app.py
+# -*- coding: utf-8 -*-
+"""
+Este é o arquivo principal da aplicação Flask, configurado para usar SQLAlchemy
+para gerenciamento do banco de dados. O pymysql é usado como driver pelo SQLAlchemy.
+"""
+
 import os
 from flask import Flask
 from flask_jwt_extended import JWTManager
 from datetime import timedelta
 import logging # Importa o módulo de logging
+import pymysql # Importado para ser usado como driver pelo SQLAlchemy
 
 # Importa db e modelos do models.py
 # Certifique-se de que o arquivo models.py está no mesmo diretório
+# db é a instância do SQLAlchemy, e os modelos representam as tabelas
 from camadaModelo import db, Disponibilidade, StatusSolicitacao, Categoria # Importa modelos para inicialização inicial do DB
 
 # Importa os Blueprints das rotas
 # Certifique-se de que a pasta 'rotas' existe e contém os arquivos de rotas
+# Essas rotas devem usar a instância 'db' e os modelos para interagir com o DB
 from rotas.rotasAutenticacao import autenticacao
 from rotas.rotasProdutos import produto
 from rotas.rotasNegociacao import negociacao
@@ -24,6 +32,7 @@ logging.info("Configuração de logging inicializada.")
 # --- Função Factory para criar a aplicação Flask ---
 # Esta é uma prática recomendada para aplicações Flask maiores
 def create_app():
+    """Cria a instância da aplicação Flask e a configura."""
     # Cria a instância da aplicação Flask
     app = Flask(__name__)
 
@@ -42,6 +51,7 @@ def create_app():
     DB_NAME = os.environ.get('DB_NAME', 'seu_banco_de_dados')
 
     # Constrói a string de conexão do banco de dados SQLAlchemy
+    # 'mysql+pymysql' indica que o SQLAlchemy deve usar o pymysql como driver
     app.config['SQLALCHEMY_DATABASE_URI'] = f'mysql+pymysql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}'
     # Desabilita o rastreamento de modificações do SQLAlchemy para economizar recursos
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
@@ -55,12 +65,14 @@ def create_app():
 
     # --- Inicializa as Extensões ---
     # Associa o objeto 'db' (inicializado em models.py) à instância do Flask app
+    # Isso configura o SQLAlchemy para usar as configurações definidas em app.config
     db.init_app(app)
     # Inicializa o Flask-JWT-Extended associando-o à instância do Flask app
     jwt = JWTManager(app)
 
     # --- Registra os Blueprints das Rotas ---
     # Registra cada Blueprint na aplicação Flask principal
+    # As rotas dentro desses Blueprints devem usar 'db' e os modelos para interagir com o DB
     app.register_blueprint(autenticacao) # Rotas de autenticação (ex: /auth/login, /auth/registrar)
     app.register_blueprint(produto) # Rotas de produtos (ex: /produtos, /produtos/meus)
     app.register_blueprint(negociacao) # Rotas de negociação (ex: /negociacoes, /negociacoes/<id>/mensagens)
@@ -85,52 +97,57 @@ if __name__ == '__main__':
     # Entra no contexto da aplicação para poder interagir com o SQLAlchemy
     with app.app_context():
         try:
-            # Cria as tabelas do banco de dados se elas não existirem.
+            # Cria as tabelas do banco de dados se elas não existirem, usando os modelos definidos.
+            # O SQLAlchemy gerencia a conexão e a execução dos comandos SQL para isso.
             # ATENÇÃO: Em produção, use ferramentas de migrations (ex: Flask-Migrate)
             # em vez de db.create_all() para gerenciar alterações no esquema do DB.
             db.create_all()
-            logging.info("Banco de dados conectado e tabelas verificadas/criadas.")
+            logging.info("Banco de dados conectado e tabelas verificadas/criadas (via SQLAlchemy).")
 
             # Opcional: Adicionar status e categorias iniciais ao banco de dados se não existirem
             # Isso é crucial para que as rotas que dependem desses status/categorias funcionem corretamente.
+            # Verifica a existência e adiciona usando consultas SQLAlchemy e sessões
             # Verifica se os status de Produto existem e os adiciona se não
             if not Disponibilidade.query.first():
-                 db.session.add(Disponibilidade(nome='DISPONIVEL'))
-                 db.session.add(Disponibilidade(nome='EM NEGOCIAÇÃO'))
-                 db.session.add(Disponibilidade(nome='NEGOCIAÇÃO ENCERRADA'))
-                 db.session.commit()
-                 logging.info("Status iniciais de Produto adicionados.")
+                db.session.add(Disponibilidade(nome='DISPONIVEL'))
+                db.session.add(Disponibilidade(nome='EM NEGOCIAÇÃO'))
+                db.session.add(Disponibilidade(nome='NEGOCIAÇÃO ENCERRADA'))
+                db.session.commit() # Salva as alterações no DB
+                logging.info("Status iniciais de Produto adicionados (via SQLAlchemy).")
             else:
-                 logging.info("Status iniciais de Produto já existem.")
+                logging.info("Status iniciais de Produto já existem.")
 
 
             # Verifica se os status de Negociação existem e os adiciona se não
-            if not StatusSolicitacao.query.first():
-                 db.session.add(StatusSolicitacao(nome='PENDENTE'))
-                 db.session.add(StatusSolicitacao(nome='APROVADA'))
-                 db.session.add(StatusSolicitacao(nome='REJEITADA'))
-                 db.session.add(StatusSolicitacao(nome='REJEITADA'))
-                 db.session.add(StatusSolicitacao(nome='APROVADA'))
-                 db.session.commit()
-                 logging.info("Status iniciais de Negociação adicionados.")
-            else:
-                 logging.info("Status iniciais de Negociação já existem.")
+            # Corrigido para adicionar apenas os status PENDENTE, APROVADA, REJEITADA uma vez
+            status_negociacao_iniciais = ['PENDENTE', 'APROVADA', 'REJEITADA']
+            for status_nome in status_negociacao_iniciais:
+                 if not StatusSolicitacao.query.filter_by(nome=status_nome).first():
+                     db.session.add(StatusSolicitacao(nome=status_nome))
+                     logging.info(f"Status de Negociação '{status_nome}' adicionado (via SQLAlchemy).")
+                 else:
+                     logging.info(f"Status de Negociação '{status_nome}' já existe.")
+            db.session.commit() # Salva as alterações no DB
 
 
             # Verifica se as categorias existem e as adiciona se não
-            if not Categoria.query.first():
-                 db.session.add(Categoria(nome='Eletrônicos'))
-                 db.session.add(Categoria(nome='Livros'))
-                 db.session.add(Categoria(nome='Móveis'))
-                 db.session.commit()
-                 logging.info("Categorias iniciais adicionadas.")
-            else:
-                 logging.info("Categorias iniciais já existem.")
+            categorias_iniciais = ['Eletrônicos', 'Livros', 'Móveis']
+            for categoria_nome in categorias_iniciais:
+                if not Categoria.query.filter_by(nome=categoria_nome).first():
+                    db.session.add(Categoria(nome=categoria_nome))
+                    logging.info(f"Categoria '{categoria_nome}' adicionada (via SQLAlchemy).")
+                else:
+                    logging.info(f"Categoria '{categoria_nome}' já existe.")
+            db.session.commit() # Salva as alterações no DB
 
 
         except Exception as e:
             # Loga um erro fatal se a conexão ou criação de tabelas falhar
-            logging.error(f"Erro fatal ao conectar ou criar tabelas do MySQL: {e}")
+            logging.error(f"Erro fatal ao conectar ou criar tabelas do MySQL (via SQLAlchemy): {e}")
+            # Em produção, você pode querer que a aplicação não inicie se o DB não estiver acessível/configurado
+            # import sys
+            # sys.exit(1)
+
 
     logging.info("Iniciando o servidor Flask...")
     # Inicia o servidor de desenvolvimento Flask

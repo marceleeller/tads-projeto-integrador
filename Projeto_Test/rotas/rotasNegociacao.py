@@ -32,7 +32,7 @@ def create_negociacao():
         data = request.get_json()
 
         # Valida se os campos obrigatórios estão presentes
-        if not data or 'produto_principal_id' not in data or 'tipo' not in data:
+        if not data or data['produto_principal_id'] not in data or data['tipo'] not in data:
             return jsonify({'erro': 'Campos "produto_principal_id" e "tipo" são obrigatórios.'}), 400 # Bad Request
 
         produto_principal_id = data.get('produto_principal_id')

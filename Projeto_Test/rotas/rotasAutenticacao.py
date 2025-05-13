@@ -2,6 +2,7 @@ import logging, datetime
 from flask import Blueprint, request, jsonify
 from werkzeug.security import generate_password_hash, check_password_hash # Importado para a rota de registro
 # Importações adicionais para tokens de refresh e revogação
+
 from flask_jwt_extended import (
     create_access_token,
     jwt_required,
@@ -11,7 +12,6 @@ from flask_jwt_extended import (
     get_jwt # Importado para obter informações do token atual (útil para revogação)
 )
 import re # Importa regex para validação de email
-# Assumindo que 'camadaModelo' e os modelos 'Usuario' e 'EnderecoUsuario' estão definidos e importados corretamente
 from camadaModelo import db, Usuario, EnderecoUsuario
 
 # Cria um Blueprint para as rotas de autenticação
@@ -37,50 +37,6 @@ autenticacao = Blueprint('autenticacao', __name__, url_prefix='/autenticacao')
 #    #     pass # Implementação real aqui
 
 # --- Rotas de Autenticação ---
-
-@autenticacao.route('/login', methods=['POST'])
-def login():
-    """
-    Endpoint para login de usuário.
-    Espera um corpo de requisição JSON com 'email' e 'senha'.
-    Valida as credenciais e retorna um JWT de acesso e um JWT de refresh em caso de sucesso.
-    """
-    data = request.get_json()
-
-    # Valida se os campos obrigatórios estão presentes
-    if not data or 'email' not in data or 'senha' not in data:
-        logging.warning("Tentativa de login sem email ou senha.")
-        return jsonify({'erro': 'Email e senha são obrigatórios.'}), 400 # Bad Request
-
-    email = data.get('email')
-    senha = data.get('senha')
-
-    try:
-        # Busca o usuário no banco de dados pelo email
-        usuario = Usuario.query.filter_by(email=email).first()
-
-        # Verifica se o usuário foi encontrado e se a senha está correta
-        if usuario and usuario.check_password(senha):
-            # Autenticação bem-sucedida: cria um token JWT de acesso e um token de refresh
-            # A identidade do token é o ID do usuário, que será usado em rotas protegidas
-            access_token = create_access_token(identity=usuario.id)
-            refresh_token = create_refresh_token(identity=usuario.id) # Cria o token de refresh
-
-            # Retorna os tokens na resposta JSON
-            return jsonify({
-                'mensagem': 'Autenticação bem-sucedida',
-                'access_token': access_token,
-                'refresh_token': refresh_token # Retorna o token de refresh
-            }), 200 # OK
-        else:
-            # Credenciais inválidas
-            logging.warning(f"Tentativa de login falhou para o email: {email}")
-            return jsonify({'erro': 'Email ou senha inválidos.'}), 401 # Unauthorized
-
-    except Exception as e:
-        # Loga o erro no servidor (não expõe detalhes ao usuário)
-        logging.error(f"Erro interno ao autenticar usuário {email}: {e}")
-        return jsonify({'erro': 'Ocorreu um erro interno ao tentar autenticar.'}), 500 # Internal Server Error
 
 @autenticacao.route('/registrar', methods=['POST'])
 def register():
@@ -122,7 +78,7 @@ def register():
         logging.warning(f"Formato de email inválido: {data['email']}")
         return jsonify({'erro': 'Formato de email inválido.'}), 400
 
-    # Validação de formato de data de nascimento (espera DD-MM-YY)
+     # Validação de formato de data de nascimento (espera DD-MM-YY)
     try:
         # Corrigido o formato da data para corresponder à string de entrada
         data_nascimento = datetime.datetime.strptime(data['data_nascimento'], '%d-%m-%y').date()
@@ -202,6 +158,52 @@ def register():
         # Em produção, evite expor detalhes do erro do DB ao usuário final
         return jsonify({'erro': 'Erro ao registrar usuário no banco de dados.'}), 500 # Internal Server Error
 
+
+@autenticacao.route('/login', methods=['POST'])
+def login():
+    """
+    Endpoint para login de usuário.
+    Espera um corpo de requisição JSON com 'email' e 'senha'.
+    Valida as credenciais e retorna um JWT de acesso e um JWT de refresh em caso de sucesso.
+    """
+    data = request.get_json()
+
+    # Valida se os campos obrigatórios estão presentes
+    if not data or data.get['email'] not in data or data.get['senha'] not in data:
+        logging.warning("Tentativa de login sem email ou senha.")
+        return jsonify({'erro': 'Email e senha são obrigatórios.'}), 400 # Bad Request
+
+    email = data.get('email')
+    senha = data.get('senha')
+
+    try:
+        # Busca o usuário no banco de dados pelo email
+        usuario = Usuario.query.filter_by(email=email).first()
+
+        # Verifica se o usuário foi encontrado e se a senha está correta
+        if usuario and usuario.verificar_senha(senha):
+            # Autenticação bem-sucedida: cria um token JWT de acesso e um token de refresh
+            # A identidade do token é o ID do usuário, que será usado em rotas protegidas
+            access_token = create_access_token(identity=usuario.id)
+            #refresh_token = create_refresh_token(identity=usuario.id) # Cria o token de refresh
+
+            # Retorna os tokens na resposta JSON
+            return jsonify({
+                'mensagem': 'Autenticação bem-sucedida',
+                #'access_token': access_token,
+                #'refresh_token': refresh_token # Retorna o token de refresh
+            }), 200 # OK
+        else:
+            # Credenciais inválidas
+            logging.warning(f"Tentativa de login falhou para o email: {email}")
+            return jsonify({'erro': 'Email ou senha inválidos.'}), 401 # Unauthorized
+
+    except Exception as e:
+        # Loga o erro no servidor (não expõe detalhes ao usuário)
+        logging.error(f"Erro interno ao autenticar usuário {email}: {e}")
+        return jsonify({'erro': 'Ocorreu um erro interno ao tentar autenticar.'}), 500 # Internal Server Error
+
+'''
 # --- Nova Rota para Refresh de Token ---
 @autenticacao.route('/refresh', methods=['POST'])
 @jwt_refresh_token_required() # Exige um token de refresh válido
@@ -221,6 +223,7 @@ def refresh():
     return jsonify({
         'access_token': new_access_token
     }), 200
+'''
 
 # --- Exemplo de Rota para Logout (Requer Configuração de Blacklist) ---
 # Esta rota é um exemplo e precisa que a configuração de blacklist esteja ativa

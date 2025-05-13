@@ -230,8 +230,6 @@ def register():
             # O relacionamento com o usuário será estabelecido abaixo
         )
 
-        # Associa o endereço ao usuário
-        novo_endereco.usuario = novo_usuario
 
         # Adiciona o usuário e o endereço à sessão do banco de dados
         db.session.add(novo_usuario)

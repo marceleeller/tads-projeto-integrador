@@ -9,6 +9,12 @@ from datetime import datetime, date # Necessário para tipos de data/datetime
 db = SQLAlchemy()
 
 # --- Definição de Enums para os Tipos de Status ---
+
+class Disponibilidade (enum.Enum):
+    DISPONIVEL = "DISPONIVEL"
+    EM_NEGOCIACAO = "EM NEGOCIAÇÃO"
+    NEGOCIACAO_ENCERRADA = "NEGOCIAÇÃO ENCERRADA"
+
 class StatusProduto(enum.Enum):
     NOVO = 'NOVO'
     USADO = 'USADO'
@@ -58,10 +64,11 @@ class Produto(db.Model):
     descricao = db.Column(db.String(200), nullable=False)
     id_usuario = db.Column(db.Integer, db.ForeignKey('usuario.id_usuario'), nullable=False)
     interesse = db.Column(db.Enum(TipoDeInterese), nullable=False)
-    #data_cadastro = db.Column(db.Date, nullable=False, default=date.today)
-    #status = db.Column(db.Enum(StatusProduto), nullable=False)
-    #quantidade = db.Column(db.Integer, nullable=False)
-    #valor = db.Column(db.Numeric(10, 2), nullable=True)
+    disponibilidade = db.column(db.Enum(Disponibilidade), nullable=False)
+    data_cadastro = db.Column(db.Date, nullable=False, default=date.today)
+    status = db.Column(db.Enum(StatusProduto), nullable=False)
+    quantidade = db.Column(db.Integer, nullable=False)
+    valor = db.Column(db.Numeric(10, 2), nullable=True)
 
     # Relacionamentos
     imagens = db.relationship("Imagem", backref="produto", lazy="dynamic")
@@ -79,7 +86,7 @@ class Usuario(UserMixin, db.Model): # Herda de UserMixin para Flask-Login
     email = db.Column(db.String(150), unique=True, nullable=False)
     password_hash = db.Column('senha', db.String(250), nullable=False) # Armazenaremos o hash da senha aqui, mapeando para a coluna 'senha'
     data_nascimento = db.Column(db.Date, nullable=False)
-    #data_cadastro = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    data_cadastro = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
     # confirme_a_sua_senha NÃO deve ser uma coluna no banco. É apenas para validação na entrada de dados.
     
     # Relacionamentos
@@ -88,6 +95,7 @@ class Usuario(UserMixin, db.Model): # Herda de UserMixin para Flask-Login
     mensagens = db.relationship("Mensagem", backref="usuario", lazy="dynamic")
     solicitacoes = db.relationship("Solicitacao", backref="usuario", lazy="dynamic")
     
+
 class EnderecoUsuario(db.Model):
     __tablename__ = 'endereco_usuario'
     id_endereco = db.Column(db.Integer, primary_key=True, autoincrement=True)

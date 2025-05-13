@@ -3,6 +3,7 @@
 import enum
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import UserMixin # Necessário para o modelo Usuario
+from werkzeug.security import generate_password_hash, check_password_hash # Importado para a rota de registro
 from datetime import datetime, date # Necessário para tipos de data/datetime
 
 # Inicializa o objeto SQLAlchemy. Ele será associado à instância do Flask depois.
@@ -84,17 +85,32 @@ class Usuario(UserMixin, db.Model): # Herda de UserMixin para Flask-Login
     cpf = db.Column(db.String(14), unique=True, nullable=True) # CPF pode ser nulo? Verifique sua regra de negócio.
     telefone = db.Column(db.String(14), nullable=False)
     email = db.Column(db.String(150), unique=True, nullable=False)
-    password_hash = db.Column('senha', db.String(250), nullable=False) # Armazenaremos o hash da senha aqui, mapeando para a coluna 'senha'
+    senha_hash = db.Column(db.String(150), db.String(250), nullable=False) # Armazenaremos o hash da senha aqui, mapeando para a coluna 'senha'
     data_nascimento = db.Column(db.Date, nullable=False)
     data_cadastro = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
     # confirme_a_sua_senha NÃO deve ser uma coluna no banco. É apenas para validação na entrada de dados.
-    
     # Relacionamentos
     enderecos_usuario = db.relationship("EnderecoUsuario", backref="usuario", lazy="dynamic")
     produtos = db.relationship("Produto", backref="usuario", lazy="dynamic")
     mensagens = db.relationship("Mensagem", backref="usuario", lazy="dynamic")
     solicitacoes = db.relationship("Solicitacao", backref="usuario", lazy="dynamic")
     
+    def definir_senha(self, password):
+        # Gera o hash da senha. O método padrão inclui salting.
+        self.senha_hash = generate_password_hash(password)
+
+    def verificar_senha(self, password):
+       # Compara a senha fornecida com o hash armazenado
+        is_valid = check_password_hash(self.senha_hash, password)
+        if not is_valid:
+             print ("Tentativa de senha incorreta para o usuário {self.email}.")
+        return is_valid
+
+    # --- Representação do Objeto (Opcional, útil para debug) ---
+    def __repr__(self):
+        return f"<Usuario {self.email}>"
+        
+
 
 class EnderecoUsuario(db.Model):
     __tablename__ = 'endereco_usuario'
@@ -107,7 +123,6 @@ class EnderecoUsuario(db.Model):
     cidade = db.Column(db.String(80), nullable=False)
     estado = db.Column(db.String(50), nullable=False)
     id_usuario = db.Column(db.Integer, db.ForeignKey('usuario.id_usuario'), nullable=False) # Chave estrangeira
-
     # Relacionamento de volta definido em Usuario
 
     def __repr__(self) -> str:

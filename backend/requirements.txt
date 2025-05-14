@@ -1,0 +1,7 @@
+Flask
+Flask-SQLAlchemy
+PyMySQL
+Werkzeug
+Flask-JWT-Extended
+python-dotenv
+SQLAlchemy

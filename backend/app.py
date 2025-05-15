@@ -14,9 +14,9 @@ from models import (
 
 # Configuracão (transferir segredos pra um .env depois)
 app = Flask(__name__)
-app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL', 'mysql+pymysql://jv:asdfg@127.0.0.1:3306/integrador')
+app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-app.config['JWT_SECRET_KEY'] = os.environ.get('JWT_SECRET_KEY', '1c719abb848d43537c1d76ac2cd086f58f6df825add8196b02542d72943f5f31d2f90cdd1613d17b8ac09a7d5b8099e0b94a96bebe961944b5e7956f4a9c05d34f23a9496f4d7abd11d3b1bc265c9d8c3be7ef577763359736d7b1f67fa7f0cd3ebf8d76ae8041810cdd5e3dec18e907b4f8ffe5fa5c0936eef1b5bbd3891e10')
+app.config['JWT_SECRET_KEY'] = os.environ.get('JWT_SECRET_KEY')
 app.config['JWT_ACCESS_TOKEN_EXPIRES'] = timedelta(hours=24)
 
 

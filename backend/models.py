@@ -19,8 +19,8 @@ class StatusSolicitacao(enum.Enum):
     CANCELADA = 'CANCELADA'
 
 class TipoDeInterese(enum.Enum):
-    TROCA = 'TROCA'
-    DOAÇÃO = 'DOAÇÃO'
+    TROCA = 1
+    DOAÇÃO = 2
 
 # --- Modelos ---
 
@@ -71,30 +71,33 @@ class Produto(db.Model):
     nome_produto = db.Column(db.String(80), nullable=False)
     descricao = db.Column(db.String(200), nullable=False)
     id_usuario = db.Column(db.Integer, db.ForeignKey('usuario.id_usuario'), nullable=False)
-    interesse = db.Column(db.Enum(TipoDeInterese), nullable=False)
     data_cadastro = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
-    
+    id_categoria = db.Column(db.Integer, db.ForeignKey('categoria.id_categoria'))
+    status = db.Column(db.Enum(StatusProduto), nullable=False, default=StatusProduto.NOVO)  # <-- Adicionado
+    quantidade = db.Column(db.Integer, nullable=False, default=1)  # <-- Adicionado
+
     # Relacionamentos
     imagens = db.relationship("Imagem", backref="produto", lazy="selectin", cascade="all, delete-orphan")
-    categorias = db.relationship("Categoria", secondary=tabela_produto_categoria, backref="produtos", lazy="selectin")
-    
+    categoria = db.relationship("Categoria", foreign_keys=[id_categoria])
+
     # Relacionamento explícito com Usuario (proprietário do produto)
     proprietario = db.relationship("Usuario", back_populates="produtos")
 
-    def to_dict(self, include_owner=False, include_categorias=True, include_imagens=True):
+    def to_dict(self, include_owner=False, include_categoria=True, include_imagens=True):
         data = {
             'id_produto': self.id_produto,
             'nome_produto': self.nome_produto,
             'descricao': self.descricao,
             'id_usuario': self.id_usuario,
-            'interesse': self.interesse.value if self.interesse else None,
-            'data_cadastro': self.data_cadastro.isoformat() if self.data_cadastro else None
+            'data_cadastro': self.data_cadastro.isoformat() if self.data_cadastro else None,
+            'status': self.status.value if self.status else None,           # <-- Adicionado
+            'quantidade': self.quantidade                                   # <-- Adicionado
         }
         if include_owner and self.proprietario:
             data['proprietario_details'] = self.proprietario.to_dict_simple()
         
-        if include_categorias:
-            data['categorias'] = [cat.to_dict() for cat in self.categorias]
+        if include_categoria and self.categoria:
+            data['categoria'] = self.categoria.to_dict()
         
         if include_imagens:
             data['imagens'] = [img.to_dict() for img in self.imagens]
@@ -222,20 +225,15 @@ class Solicitacao(db.Model):
     id_solicitacao = db.Column(db.Integer, primary_key=True, autoincrement=True)
     status = db.Column(db.Enum(StatusSolicitacao), nullable=False, default=StatusSolicitacao.PENDENTE)
     data_solicitacao = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
-    
     id_usuario_solicitante = db.Column(db.Integer, db.ForeignKey('usuario.id_usuario'), nullable=False)
     id_produto_desejado = db.Column(db.Integer, db.ForeignKey('produto.id_produto'), nullable=False)
     id_produto_ofertado = db.Column(db.Integer, db.ForeignKey('produto.id_produto'), nullable=True)
-    
-    tipo_solicitacao = db.Column(db.Enum(TipoDeInterese), nullable=False)
-    id_transacao = db.Column(db.Integer, db.ForeignKey('transacao.id_transacao'), nullable=True)
-    
+    id_transacao = db.Column(db.Integer, db.ForeignKey('transacao.id_transacao'), nullable=True)  # <-- Adicionado
+
     # Relacionamentos
-    # 'usuario_solicitante_obj' é criado pelo backref de Usuario.solicitacoes_feitas
     produto_desejado_obj = db.relationship("Produto", foreign_keys=[id_produto_desejado], backref="solicitacoes_para_este_produto")
     produto_ofertado_obj = db.relationship("Produto", foreign_keys=[id_produto_ofertado], backref="solicitacoes_onde_foi_ofertado")
-    
-    transacao_obj = db.relationship("Transacao", backref=db.backref("solicitacao_associada", uselist=False))
+    transacao_obj = db.relationship("Transacao", backref=db.backref("solicitacoes", lazy="dynamic"))  # <-- Corrigido
     mensagens = db.relationship("Mensagem", backref="solicitacao_obj", lazy="dynamic", cascade="all, delete-orphan")
 
     def to_dict(self, include_produtos_details=False):
@@ -246,7 +244,6 @@ class Solicitacao(db.Model):
             'id_usuario_solicitante': self.id_usuario_solicitante,
             'id_produto_desejado': self.id_produto_desejado,
             'id_produto_ofertado': self.id_produto_ofertado,
-            'tipo_solicitacao': self.tipo_solicitacao.value if self.tipo_solicitacao else None,
             'id_transacao': self.id_transacao
         }
         if hasattr(self, 'usuario_solicitante_obj') and self.usuario_solicitante_obj:
@@ -257,6 +254,10 @@ class Solicitacao(db.Model):
                 data['produto_desejado'] = self.produto_desejado_obj.to_dict()
             if self.produto_ofertado_obj:
                 data['produto_ofertado'] = self.produto_ofertado_obj.to_dict()
+        
+        if self.produto_desejado_obj and self.produto_desejado_obj.categoria:
+            data['tipo_solicitacao'] = self.produto_desejado_obj.categoria.nome_categoria
+
         return data
 
     def __repr__(self) -> str:

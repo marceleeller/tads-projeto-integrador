@@ -1,3 +1,13 @@
+document.addEventListener('DOMContentLoaded', () => {
+    const nomeUsuario = localStorage.getItem('nome_usuario');
+    if (nomeUsuario) {
+        const spanBemVindo = document.getElementById('bem-vindo-usuario');
+        if (spanBemVindo) {
+            spanBemVindo.textContent = `Bem-vindo(a), ${nomeUsuario}`;
+        }
+    }
+});
+
 document.getElementById('search-name').addEventListener('input', function () {
     const searchValue = this.value.toLowerCase();
     const products = document.querySelectorAll('#product-list .col-md-4');

@@ -1,24 +1,29 @@
 import os
 from datetime import timedelta, datetime
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, send_from_directory
 from flask_sqlalchemy import SQLAlchemy
 from flask_jwt_extended import create_access_token, jwt_required, get_jwt_identity, JWTManager
 from sqlalchemy.orm import joinedload, selectinload 
 from sqlalchemy import or_, and_
+from dotenv import load_dotenv
+from flask_cors import CORS
+import uuid
 
 from models import (
     db, Usuario, Produto, Imagem, Categoria, Mensagem,
     Solicitacao, Transacao, EnderecoUsuario,
-    StatusSolicitacao, TipoDeInterese, tabela_produto_categoria
+    StatusSolicitacao, StatusProduto, TipoDeInterese, tabela_produto_categoria,
+    SolicitacaoProdutoOfertado
 )
 
-# Configuracão (transferir segredos pra um .env depois)
-app = Flask(__name__)
+# Configuracão
+load_dotenv(dotenv_path='./venv/.env')
+app = Flask(__name__, static_url_path='', static_folder='uploads')
 app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['JWT_SECRET_KEY'] = os.environ.get('JWT_SECRET_KEY')
 app.config['JWT_ACCESS_TOKEN_EXPIRES'] = timedelta(hours=24)
-
+CORS(app)
 
 db.init_app(app)
 jwt = JWTManager(app)
@@ -45,16 +50,23 @@ def cadastro_usuario():
     data = request.get_json()
     if not data: 
         return jsonify({'msg': 'Payload da requisição não pode ser vazio'}), 400
-    if not all(k in data for k in ('nome_usuario', 'email', 'senha', 'telefone', 'data_nascimento')):
-        return jsonify({'msg': 'Campos obrigatórios faltando: nome_usuario, email, senha, telefone, data_nascimento'}), 400
+    if not all(k in data for k in ('nome_usuario', 'email', 'senha', 'telefone', 'data_nascimento', 'cep', 'bairro', 'rua', 'numero', 'cidade', 'estado')):
+        return jsonify({'msg': 'Campos obrigatórios faltando: nome_usuario, email, senha, telefone, data_nascimento, cep, bairro, rua, numero, cidade, estado'}), 400
 
+    # Validação de e-mail único
     if Usuario.query.filter_by(email=data['email']).first():
         return jsonify({'msg': 'Email já cadastrado'}), 409
-    
+
+    # Validação de CPF único (se informado)
+    if data.get('cpf'):
+        if Usuario.query.filter_by(cpf=data['cpf']).first():
+            return jsonify({'msg': 'CPF já cadastrado'}), 409
+
     data_nasc = parse_date(data.get('data_nascimento'))
     if not data_nasc:
         return jsonify({'msg': 'Formato de data_nascimento inválido. Use YYYY-MM-DD.'}), 400
 
+    # Criar o usuário
     novo_usuario = Usuario(
         nome_usuario=data['nome_usuario'],
         email=data['email'],
@@ -66,13 +78,29 @@ def cadastro_usuario():
     
     try:
         db.session.add(novo_usuario)
+        db.session.flush()  # Garante que o ID do usuário seja gerado antes de salvar o endereço
+
+        # Criar o endereço associado ao usuário
+        novo_endereco = EnderecoUsuario(
+            cep=data['cep'],
+            bairro=data['bairro'],
+            rua=data['rua'],
+            numero=data['numero'],
+            complemento=data.get('complemento'),
+            cidade=data['cidade'],
+            estado=data['estado'],
+            id_usuario=novo_usuario.id_usuario
+        )
+        db.session.add(novo_endereco)
         db.session.commit()
     except Exception as e:
         db.session.rollback()
         app.logger.error(f"Erro ao salvar usuário: {e}") 
         return jsonify({'msg': 'Erro ao salvar usuário no banco de dados.'}), 500
     
-    return jsonify({'msg': 'Usuário cadastrado com sucesso!', 'id_usuario': novo_usuario.id_usuario}), 201
+    return jsonify({'msg': 'Usuário cadastrado com sucesso!', 
+                    'id_usuario': novo_usuario.id_usuario,
+                    'nome_usuario': novo_usuario.nome_usuario}), 201
 
 # POST - Login de usuário
 @app.route('/usuario/login', methods=['POST'])
@@ -97,32 +125,28 @@ def login_usuario():
 @app.route('/produtos', methods=['GET'])
 @jwt_required()
 def obter_todos_produtos_ativos():
+    current_user_id = get_current_user_id_from_token()
+
     # Subconsulta para IDs de produtos desejados em solicitações PENDENTES ou APROVADAS
     sq_desejados = db.select(Solicitacao.id_produto_desejado.distinct().label("produto_id"))\
         .where(Solicitacao.status.in_([StatusSolicitacao.PENDENTE, StatusSolicitacao.APROVADA]))\
         .where(Solicitacao.id_produto_desejado.isnot(None))
 
-    # Subconsulta para IDs de produtos ofertados em solicitações PENDENTES ou APROVADAS
-    sq_ofertados = db.select(Solicitacao.id_produto_ofertado.distinct().label("produto_id"))\
-        .where(Solicitacao.status.in_([StatusSolicitacao.PENDENTE, StatusSolicitacao.APROVADA]))\
-        .where(Solicitacao.id_produto_ofertado.isnot(None))
-        
-    # Executa as subconsultas e obtém as listas de IDs
+    # Subconsulta para IDs de produtos ofertados em solicitações PENDENTES ou APROVADAS (tabela de relacionamento)
+    sq_ofertados = db.select(SolicitacaoProdutoOfertado.id_produto.distinct().label("produto_id"))\
+        .join(Solicitacao, SolicitacaoProdutoOfertado.id_solicitacao == Solicitacao.id_solicitacao)\
+        .where(Solicitacao.status.in_([StatusSolicitacao.PENDENTE, StatusSolicitacao.APROVADA]))
+
     ids_desejados_result = db.session.execute(sq_desejados).scalars().all()
     ids_ofertados_result = db.session.execute(sq_ofertados).scalars().all()
-
-    # Combina os IDs de forma única (usando set para remover duplicatas)
     todos_ids_produtos_em_negociacao = list(set(ids_desejados_result + ids_ofertados_result))
 
-    if not todos_ids_produtos_em_negociacao:
-        # Se não há produtos em negociação, retorna todos os produtos
-        produtos_ativos = Produto.query.all()
-    else:
-        # Filtra os produtos cujo ID NÃO ESTÁ na lista de produtos em negociação
-        produtos_ativos = Produto.query.filter(
-            Produto.id_produto.notin_(todos_ids_produtos_em_negociacao)
-        ).all()
-    
+    # Filtra produtos que não são do usuário logado e não estão em negociação
+    query = Produto.query.filter(Produto.id_usuario != current_user_id)
+    if todos_ids_produtos_em_negociacao:
+        query = query.filter(Produto.id_produto.notin_(todos_ids_produtos_em_negociacao))
+    produtos_ativos = query.all()
+
     return jsonify([produto.to_dict(include_owner=True) for produto in produtos_ativos]), 200
 
 # GET - Obter todos produtos vinculados ao ID do usuário (logado)
@@ -133,39 +157,82 @@ def obter_produtos_usuario():
         current_user_id = get_current_user_id_from_token()
     except ValueError as e:
         return jsonify({'msg': str(e)}), 400 
-    
+
+    # Produtos cadastrados pelo usuário
     produtos_cadastrados = Produto.query.filter_by(id_usuario=current_user_id).all()
-    solicitacoes_feitas = Solicitacao.query.filter_by(id_usuario_solicitante=current_user_id).all()
-    
-    produtos_desejados_ids = {s.id_produto_desejado for s in solicitacoes_feitas}
-    produtos_ofertados_ids = {s.id_produto_ofertado for s in solicitacoes_feitas if s.id_produto_ofertado}
+    produtos_response = []
 
-    todos_ids_relevantes = {p.id_produto for p in produtos_cadastrados}
-    todos_ids_relevantes.update(produtos_desejados_ids)
-    todos_ids_relevantes.update(produtos_ofertados_ids)
+    # Adiciona produtos cadastrados pelo usuário
+    for produto in produtos_cadastrados:
+        produto_dict = produto.to_dict(include_owner=True)
+        solicitacoes = Solicitacao.query.filter_by(
+            id_produto_desejado=produto.id_produto
+        ).order_by(Solicitacao.id_solicitacao.desc()).all()
+        produto_dict['solicitacoes'] = [
+            {
+                'id_solicitacao': s.id_solicitacao,
+                'status': s.status.value,
+                'id_usuario_solicitante': s.id_usuario_solicitante,
+                'data_solicitacao': s.data_solicitacao.isoformat() if s.data_solicitacao else None
+            }
+            for s in solicitacoes
+        ]
+        produtos_response.append(produto_dict)
 
-    if not todos_ids_relevantes:
-        return jsonify([]), 200
+    # Produtos em que o usuário está envolvido como solicitante (mas não é o dono)
+    solicitacoes_usuario = Solicitacao.query.filter_by(id_usuario_solicitante=current_user_id).all()
+    produtos_solicitados_ids = set()
+    for s in solicitacoes_usuario:
+        produto = Produto.query.get(s.id_produto_desejado)
+        if produto and produto.id_usuario != current_user_id and produto.id_produto not in produtos_solicitados_ids:
+            produto_dict = produto.to_dict(include_owner=True)
+            solicitacoes = Solicitacao.query.filter_by(
+                id_produto_desejado=produto.id_produto
+            ).order_by(Solicitacao.id_solicitacao.desc()).all()
+            produto_dict['solicitacoes'] = [
+                {
+                    'id_solicitacao': sol.id_solicitacao,
+                    'status': sol.status.value,
+                    'id_usuario_solicitante': sol.id_usuario_solicitante,
+                    'data_solicitacao': sol.data_solicitacao.isoformat() if sol.data_solicitacao else None
+                }
+                for sol in solicitacoes
+            ]
+            produtos_response.append(produto_dict)
+            produtos_solicitados_ids.add(produto.id_produto)
 
-    produtos_relevantes = Produto.query.filter(Produto.id_produto.in_(list(todos_ids_relevantes))).all()
-        
-    return jsonify([p.to_dict(include_owner=True) for p in produtos_relevantes]), 200
+    return jsonify(produtos_response), 200
 
 
 # GET - Obter produto pelo ID
 @app.route('/produto/<int:id_produto>', methods=['GET'])
 @jwt_required()
 def obter_produto(id_produto):
+    current_user_id = get_current_user_id_from_token()
+
     stmt = db.select(Produto).options(
         joinedload(Produto.proprietario),
         selectinload(Produto.imagens),
-        selectinload(Produto.categorias)
+        selectinload(Produto.categoria)
     ).where(Produto.id_produto == id_produto)
     produto = db.session.execute(stmt).scalar_one_or_none()
     
     if not produto:
         return jsonify({'msg': 'Produto não encontrado'}), 404
-    return jsonify(produto.to_dict(include_owner=True, include_categorias=True, include_imagens=True)), 200
+
+    produto_dict = produto.to_dict(include_owner=True, include_categoria=True, include_imagens=True)
+
+    # Busca a solicitação do usuário logado para este produto (se houver)
+    solicitacao = Solicitacao.query.filter_by(
+        id_usuario_solicitante=current_user_id,
+        id_produto_desejado=id_produto
+    ).order_by(Solicitacao.id_solicitacao.desc()).first()
+    if solicitacao:
+        produto_dict['status_solicitacao'] = solicitacao.status.value
+    else:
+        produto_dict['status_solicitacao'] = None
+
+    return jsonify(produto_dict), 200
 
 # POST - Criar produto
 @app.route('/produto', methods=['POST'])
@@ -175,49 +242,56 @@ def criar_produto():
         current_user_id = get_current_user_id_from_token()
     except ValueError as e:
         return jsonify({'msg': str(e)}), 400
-        
-    data = request.get_json()
-    if not data:
-        return jsonify({'msg': 'Payload da requisição não pode ser vazio'}), 400
 
-    if not all(k in data for k in ('nome_produto', 'descricao', 'interesse')):
-        return jsonify({'msg': 'Campos nome_produto, descricao, interesse são obrigatórios'}), 400
+    # Recebe dados do formulário
+    nome_produto = request.form.get('nome_produto')
+    descricao = request.form.get('descricao')
+    id_categoria = request.form.get('id_categoria', type=int)
+    quantidade = request.form.get('quantidade', type=int)
+    status = request.form.get('status')
+
+    if not nome_produto or not descricao or not id_categoria or not quantidade or not status:
+        return jsonify({'msg': 'Campos nome_produto, descricao, id_categoria, quantidade e status são obrigatórios'}), 400
 
     try:
-        tipo_interesse = TipoDeInterese[data['interesse'].upper()]
+        status_produto = StatusProduto[status.upper()]
     except KeyError:
-        return jsonify({'msg': f"Valor inválido para 'interesse'. Use {', '.join([t.value for t in TipoDeInterese])}"}), 400
+        return jsonify({'msg': f"Valor inválido para 'status'. Use NOVO ou USADO."}), 400
 
     novo_produto = Produto(
-        nome_produto=data['nome_produto'],
-        descricao=data['descricao'],
+        nome_produto=nome_produto,
+        descricao=descricao,
         id_usuario=current_user_id,
-        interesse=tipo_interesse,
+        id_categoria=id_categoria,
+        quantidade=quantidade,
+        status=status_produto
     )
     db.session.add(novo_produto)
-    
-    if 'categorias_ids' in data and isinstance(data['categorias_ids'], list):
-        for cat_id in data['categorias_ids']:
-            categoria = Categoria.query.get(cat_id)
-            if categoria:
-                novo_produto.categorias.append(categoria)
-    
-    if 'imagens' in data and isinstance(data['imagens'], list):
-        for img_data in data['imagens']:
-            if isinstance(img_data, dict) and 'url_imagem' in img_data:
-                nova_imagem = Imagem(
-                    url_imagem=img_data['url_imagem'],
-                    descricao_imagem=img_data.get('descricao_imagem'),
-                    produto=novo_produto 
-                )
-                db.session.add(nova_imagem)
+    db.session.flush()  # Para garantir o ID do produto
+
+    # Salvar imagens
+    imagens = request.files.getlist('images')
+    upload_folder = os.path.join(os.getcwd(), 'uploads')
+    os.makedirs(upload_folder, exist_ok=True)
+    for img in imagens:
+        if img and img.filename:
+            ext = os.path.splitext(img.filename)[1]
+            filename = f"{uuid.uuid4().hex}{ext}"
+            filepath = os.path.join(upload_folder, filename)
+            img.save(filepath)
+            nova_imagem = Imagem(
+                url_imagem=f'uploads/{filename}',
+                produto=novo_produto
+            )
+            db.session.add(nova_imagem)
+
     try:
         db.session.commit()
     except Exception as e:
         db.session.rollback()
         app.logger.error(f"Erro ao criar produto: {e}")
         return jsonify({'msg': 'Erro ao salvar produto no banco de dados.'}), 500
-        
+
     return jsonify(novo_produto.to_dict(include_owner=True)), 201
 
 
@@ -229,35 +303,81 @@ def alterar_produto(id_produto):
         current_user_id = get_current_user_id_from_token()
     except ValueError as e:
         return jsonify({'msg': str(e)}), 400
-        
-    produto = Produto.query.get(id_produto)
 
+    produto = Produto.query.get(id_produto)
     if not produto:
         return jsonify({'msg': 'Produto não encontrado'}), 404
     if produto.id_usuario != current_user_id:
         return jsonify({'msg': 'Acesso não autorizado para alterar este produto'}), 403
 
-    data = request.get_json()
-    if not data:
-        return jsonify({'msg': 'Payload da requisição não pode ser vazio'}), 400
-        
-    if 'nome_produto' in data:
-        produto.nome_produto = data['nome_produto']
-    if 'descricao' in data:
-        produto.descricao = data['descricao']
-    if 'interesse' in data:
+    # Suporte a JSON ou multipart/form-data
+    if request.content_type and request.content_type.startswith('multipart/form-data'):
+        nome_produto = request.form.get('nome_produto')
+        descricao = request.form.get('descricao')
+        quantidade = request.form.get('quantidade', type=int)
+        id_categoria = request.form.get('id_categoria', type=int)
+        status = request.form.get('status')
+        imagens = request.files.getlist('images')
+    else:
+        data = request.get_json()
+        if not data:
+            return jsonify({'msg': 'Payload da requisição não pode ser vazio'}), 400
+        nome_produto = data.get('nome_produto')
+        descricao = data.get('descricao')
+        quantidade = data.get('quantidade')
+        id_categoria = data.get('id_categoria')
+        status = data.get('status')
+        imagens = []
+
+    if nome_produto:
+        produto.nome_produto = nome_produto
+    if descricao:
+        produto.descricao = descricao
+    if quantidade is not None:
+        produto.quantidade = quantidade
+    if id_categoria:
+        produto.id_categoria = id_categoria
+    if status:
         try:
-            produto.interesse = TipoDeInterese[data['interesse'].upper()]
+            produto.status = StatusProduto[status.upper()]
         except KeyError:
-            return jsonify({'msg': f"Valor inválido para 'interesse'. Use {', '.join([t.value for t in TipoDeInterese])}"}), 400
+            return jsonify({'msg': "Valor inválido para 'status'. Use NOVO ou USADO."}), 400
+
+    # Se vierem novas imagens, remove as antigas e salva as novas
+    if imagens and any(img.filename for img in imagens):
+        # Remove imagens antigas do banco e do disco
+        for img in produto.imagens:
+            img_path = os.path.join(os.getcwd(), img.url_imagem)
+            if os.path.exists(img_path):
+                try:
+                    os.remove(img_path)
+                except Exception as e:
+                    app.logger.error(f"Erro ao remover arquivo {img_path}: {e}")
+            db.session.delete(img)
+        db.session.flush()
+        # Salva novas imagens
+        upload_folder = os.path.join(os.getcwd(), 'uploads')
+        os.makedirs(upload_folder, exist_ok=True)
+        for img in imagens:
+            if img and img.filename:
+                ext = os.path.splitext(img.filename)[1]
+                filename = f"{uuid.uuid4().hex}{ext}"
+                filepath = os.path.join(upload_folder, filename)
+                img.save(filepath)
+                nova_imagem = Imagem(
+                    url_imagem=f'uploads/{filename}',
+                    produto=produto
+                )
+                db.session.add(nova_imagem)
+
     try:
         db.session.commit()
     except Exception as e:
         db.session.rollback()
         app.logger.error(f"Erro ao alterar produto {id_produto}: {e}")
         return jsonify({'msg': 'Erro ao atualizar produto no banco de dados.'}), 500
-        
-    return jsonify(produto.to_dict(include_owner=True)), 200
+
+    return jsonify(produto.to_dict(include_owner=True, include_categoria=True, include_imagens=True)), 200
 
 # DELETE - Deletar produto
 @app.route('/produto/<int:id_produto>', methods=['DELETE'])
@@ -282,6 +402,16 @@ def deletar_produto(id_produto):
 
     if solicitacoes_ativas:
         return jsonify({'msg': 'Produto não pode ser deletado pois está envolvido em negociações ativas.'}), 409
+
+    # Remove imagens do diretório físico
+    for img in produto.imagens:
+        img_path = os.path.join(os.getcwd(), img.url_imagem)
+        if os.path.exists(img_path):
+            try:
+                os.remove(img_path)
+            except Exception as e:
+                app.logger.error(f"Erro ao remover arquivo {img_path}: {e}")
+
     try:
         db.session.delete(produto)
         db.session.commit()
@@ -321,13 +451,13 @@ def enviar_mensagem():
         return jsonify({'msg': 'Usuário não autorizado a interagir com esta negociação'}), 403
     
     # Verifica se a solicitação ainda está pendente para permitir o envio de mensagens
-    if solicitacao.status != StatusSolicitacao.PENDENTE:
-        return jsonify({'msg': f'Não é possível enviar mensagens em uma negociação com status "{solicitacao.status.value}". Apenas negociações pendentes aceitam novas mensagens.'}), 403
+    if solicitacao.status not in [StatusSolicitacao.PENDENTE, StatusSolicitacao.PROCESSANDO]:
+        return jsonify({'msg': f'Não é possível enviar mensagens em uma negociação com status "{solicitacao.status.value}". Apenas negociações PROCESSANDO ou PENDENTE aceitam novas mensagens.'}), 403
 
     nova_mensagem = Mensagem(
         conteudo_mensagem=data['conteudo_mensagem'],
         id_solicitacao=data['id_solicitacao'],
-        id_usuario_remetente=current_user_id
+        id_usuario=current_user_id
     )
     try:
         db.session.add(nova_mensagem)
@@ -338,35 +468,6 @@ def enviar_mensagem():
         return jsonify({'msg': 'Erro ao salvar mensagem no banco de dados.'}), 500
         
     return jsonify(nova_mensagem.to_dict()), 201
-
-# GET - Obter dados da tela de negociação
-@app.route('/negociacao/<int:id_solicitacao>', methods=['GET'])
-@jwt_required()
-def obter_dados_negociacao(id_solicitacao):
-    try:
-        current_user_id = get_current_user_id_from_token()
-    except ValueError as e:
-        return jsonify({'msg': str(e)}), 400
-        
-    solicitacao = Solicitacao.query.get(id_solicitacao)
-
-    if not solicitacao:
-        return jsonify({'msg': 'Negociação (Solicitação) não encontrada'}), 404
-
-    produto_desejado = Produto.query.get(solicitacao.id_produto_desejado)
-    if not produto_desejado: 
-         return jsonify({'msg': 'Produto desejado na negociação não encontrado (erro de integridade)'}), 404
-
-    if current_user_id != solicitacao.id_usuario_solicitante and current_user_id != produto_desejado.id_usuario:
-        return jsonify({'msg': 'Acesso não autorizado a esta negociação'}), 403
-
-    mensagens = Mensagem.query.filter_by(id_solicitacao=id_solicitacao).order_by(Mensagem.data_envio.asc()).all()
-    
-    resultado = {
-        'solicitacao': solicitacao.to_dict(include_produtos_details=True),
-        'mensagens': [msg.to_dict() for msg in mensagens],
-    }
-    return jsonify(resultado), 200
 
 # POST - Criar solicitação (negociação)
 @app.route('/solicitacao', methods=['POST'])
@@ -383,11 +484,6 @@ def criar_solicitacao():
 
     if not all(k in data for k in ('id_produto_desejado', 'tipo_solicitacao')):
         return jsonify({'msg': 'id_produto_desejado e tipo_solicitacao são obrigatórios'}), 400
-
-    try:
-        tipo_solicitacao = TipoDeInterese[data['tipo_solicitacao'].upper()]
-    except KeyError:
-        return jsonify({'msg': f"Valor inválido para 'tipo_solicitacao'. Use {', '.join([t.value for t in TipoDeInterese])}"}), 400
 
     try: 
         id_produto_desejado_int = int(data['id_produto_desejado'])
@@ -409,37 +505,52 @@ def criar_solicitacao():
     if solicitacao_existente:
         return jsonify({'msg': 'Você já possui uma solicitação ativa para este produto.'}), 409
 
-    id_produto_ofertado_frontend = data.get('id_produto_ofertado')
-    id_produto_ofertado_db = None 
+    # Descobre o tipo da solicitação pela categoria do produto desejado
+    tipo_solicitacao = produto_desejado.categoria.nome_categoria.upper()
 
-    if tipo_solicitacao == TipoDeInterese.TROCA:
-        if not id_produto_ofertado_frontend:
+    produtos_ofertados_ids = data.get('id_produto_ofertado', [])
+
+    print(f"Tipo de solicitação: {tipo_solicitacao}")
+    print(f"Produtos ofertados: {produtos_ofertados_ids}")
+
+    if tipo_solicitacao == 'TROCA':
+        # Aceita tanto int quanto lista
+        if not produtos_ofertados_ids:
             return jsonify({'msg': 'id_produto_ofertado é obrigatório para solicitações de TROCA'}), 400
-        try: 
-            id_produto_ofertado_int = int(id_produto_ofertado_frontend)
-        except ValueError:
-            return jsonify({'msg': 'ID do produto ofertado inválido.'}), 400
-        produto_ofertado = Produto.query.get(id_produto_ofertado_int)
-
-        if not produto_ofertado:
-            return jsonify({'msg': 'Produto ofertado não encontrado'}), 404
-        if produto_ofertado.id_usuario != current_user_id:
-            return jsonify({'msg': 'Você só pode ofertar seus próprios produtos'}), 403
-        if produto_ofertado.id_produto == produto_desejado.id_produto: 
-            return jsonify({'msg': 'Produto ofertado não pode ser o mesmo que o produto desejado'}),400
-        id_produto_ofertado_db = produto_ofertado.id_produto
-    elif id_produto_ofertado_frontend is not None: 
+        if isinstance(produtos_ofertados_ids, int):
+            produtos_ofertados_ids = [produtos_ofertados_ids]
+        if not isinstance(produtos_ofertados_ids, list):
+            return jsonify({'msg': 'id_produto_ofertado deve ser uma lista de IDs'}), 400
+        # Validação dos produtos ofertados
+        for id_produto in produtos_ofertados_ids:
+            produto_ofertado = Produto.query.get(id_produto)
+            if not produto_ofertado:
+                return jsonify({'msg': f'Produto ofertado {id_produto} não encontrado'}), 404
+            if produto_ofertado.id_usuario != current_user_id:
+                return jsonify({'msg': 'Você só pode ofertar seus próprios produtos'}), 403
+            if produto_ofertado.id_produto == produto_desejado.id_produto: 
+                return jsonify({'msg': 'Produto ofertado não pode ser o mesmo que o produto desejado'}),400
+    elif produtos_ofertados_ids:
         return jsonify({'msg': 'id_produto_ofertado não deve ser enviado para solicitações de DOAÇÃO'}), 400
 
     nova_solicitacao = Solicitacao(
         id_usuario_solicitante=current_user_id,
         id_produto_desejado=id_produto_desejado_int,
-        id_produto_ofertado=id_produto_ofertado_db, 
-        tipo_solicitacao=tipo_solicitacao,
         status=StatusSolicitacao.PENDENTE
     )
     try:
         db.session.add(nova_solicitacao)
+        db.session.flush()  # Garante o ID da solicitação
+
+        # Se for troca, salva os produtos ofertados na tabela de relacionamento
+        if tipo_solicitacao == TipoDeInterese.TROCA:
+            for id_produto in produtos_ofertados_ids:
+                rel = SolicitacaoProdutoOfertado(
+                    id_solicitacao=nova_solicitacao.id_solicitacao,
+                    id_produto=id_produto
+                )
+                db.session.add(rel)
+
         db.session.commit()
     except Exception as e:
         db.session.rollback()
@@ -489,6 +600,7 @@ def acao_solicitacao(id_solicitacao):
         db.session.add(nova_transacao)
         solicitacao.transacao_obj = nova_transacao
 
+        # Recusa outras solicitações pendentes para o mesmo produto desejado
         outras_solicitacoes_produto_desejado = Solicitacao.query.filter(
             Solicitacao.id_produto_desejado == solicitacao.id_produto_desejado,
             Solicitacao.id_solicitacao != solicitacao.id_solicitacao, 
@@ -496,22 +608,34 @@ def acao_solicitacao(id_solicitacao):
         ).all()
         for s_outra in outras_solicitacoes_produto_desejado:
             s_outra.status = StatusSolicitacao.RECUSADA
-        
-        if solicitacao.id_produto_ofertado: 
-            outras_solicitacoes_produto_ofertado = Solicitacao.query.filter(
-                ( (Solicitacao.id_produto_desejado == solicitacao.id_produto_ofertado) | \
-                  (Solicitacao.id_produto_ofertado == solicitacao.id_produto_ofertado) ),
-                Solicitacao.id_solicitacao != solicitacao.id_solicitacao, 
-                Solicitacao.status == StatusSolicitacao.PENDENTE
-            ).all()
-            for s_outra in outras_solicitacoes_produto_ofertado:
-                s_outra.status = StatusSolicitacao.RECUSADA
+            
     try:
         db.session.commit()
     except Exception as e:
         db.session.rollback()
         app.logger.error(f"Erro ao processar ação para solicitação {id_solicitacao}: {e}")
         return jsonify({'msg': 'Erro ao processar ação da solicitação no banco de dados.'}), 500
+
+    if novo_status == StatusSolicitacao.APROVADA and hasattr(solicitacao, "produtos_ofertados"):
+        # Só para troca: atualiza produtos ofertados se enviados
+        produtos_ofertados_ids = data.get('id_produto_ofertado', [])
+        if produtos_ofertados_ids:
+            # Remove antigos
+            SolicitacaoProdutoOfertado.query.filter_by(id_solicitacao=solicitacao.id_solicitacao).delete()
+            # Adiciona novos
+            for id_produto in produtos_ofertados_ids:
+                rel = SolicitacaoProdutoOfertado(
+                    id_solicitacao=solicitacao.id_solicitacao,
+                    id_produto=id_produto
+                )
+                db.session.add(rel)
+
+    try:
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        app.logger.error(f"Erro ao atualizar produtos ofertados para solicitação {id_solicitacao}: {e}")
+        return jsonify({'msg': 'Erro ao atualizar produtos ofertados no banco de dados.'}), 500
         
     return jsonify(solicitacao.to_dict(include_produtos_details=True)), 200
 
@@ -545,6 +669,65 @@ def cancelar_solicitacao(id_solicitacao):
         
     return jsonify({'msg': 'Solicitação cancelada com sucesso'}), 200
 
+# PUT - Marcar solicitação como PENDENTE
+@app.route('/solicitacao/<int:id_solicitacao>/pendente', methods=['PUT'])
+@jwt_required()
+def marcar_solicitacao_pendente(id_solicitacao):
+    try:
+        current_user_id = get_current_user_id_from_token()
+    except ValueError as e:
+        return jsonify({'msg': str(e)}), 400
+
+    solicitacao = Solicitacao.query.get(id_solicitacao)
+    if not solicitacao:
+        return jsonify({'msg': 'Solicitação não encontrada'}), 404
+
+    if solicitacao.id_usuario_solicitante != current_user_id:
+        return jsonify({'msg': 'Você não pode alterar esta solicitação.'}), 403
+
+    if solicitacao.status != StatusSolicitacao.PROCESSANDO:
+        return jsonify({'msg': f'Só é possível ativar solicitações com status PROCESSANDO. Status atual: {solicitacao.status.value}'}), 409
+
+    data = request.get_json() or {}
+    produtos_ofertados_ids = data.get('id_produto_ofertado', [])
+
+    # Só exige produtos ofertados se for troca
+    tipo_solicitacao = solicitacao.produto_desejado_obj.categoria.nome_categoria.upper()
+    if tipo_solicitacao == 'TROCA':
+        if not produtos_ofertados_ids:
+            return jsonify({'msg': 'id_produto_ofertado é obrigatório para solicitações de TROCA'}), 400
+        if isinstance(produtos_ofertados_ids, int):
+            produtos_ofertados_ids = [produtos_ofertados_ids]
+        if not isinstance(produtos_ofertados_ids, list):
+            return jsonify({'msg': 'id_produto_ofertado deve ser uma lista de IDs'}), 400
+
+        # Remove antigos
+        SolicitacaoProdutoOfertado.query.filter_by(id_solicitacao=solicitacao.id_solicitacao).delete()
+        # Adiciona novos
+        for id_produto in produtos_ofertados_ids:
+            produto_ofertado = Produto.query.get(id_produto)
+            if not produto_ofertado:
+                return jsonify({'msg': f'Produto ofertado {id_produto} não encontrado'}), 404
+            if produto_ofertado.id_usuario != current_user_id:
+                return jsonify({'msg': 'Você só pode ofertar seus próprios produtos'}), 403
+            if produto_ofertado.id_produto == solicitacao.id_produto_desejado:
+                return jsonify({'msg': 'Produto ofertado não pode ser o mesmo que o produto desejado'}), 400
+            rel = SolicitacaoProdutoOfertado(
+                id_solicitacao=solicitacao.id_solicitacao,
+                id_produto=id_produto
+            )
+            db.session.add(rel)
+
+    # Atualiza status
+    solicitacao.status = StatusSolicitacao.PENDENTE
+    try:
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        app.logger.error(f"Erro ao ativar solicitação {id_solicitacao}: {e}")
+        return jsonify({'msg': 'Erro ao atualizar solicitação no banco de dados.'}), 500
+
+    return jsonify({'msg': 'Solicitação ativada com sucesso!', 'solicitacao': solicitacao.to_dict(include_produtos_details=True)}), 200
 
 @app.route('/')
 def hello():
@@ -555,24 +738,115 @@ def create_tables():
         db.create_all()
         print("Tabelas criadas (se não existiam)!")
 
-        if Categoria.query.count() == 0:
-            print("Adicionando categorias de exemplo...")
-            categorias_exemplo = [
-                {'nome_categoria': 'Eletrônicos', 'descricao': 'Dispositivos eletrônicos e acessórios'},
-                {'nome_categoria': 'Livros', 'descricao': 'Livros de diversos gêneros'},
-                {'nome_categoria': 'Móveis', 'descricao': 'Móveis para casa e escritório'},
-                {'nome_categoria': 'Roupas', 'descricao': 'Vestuário masculino, feminino e infantil'},
-                {'nome_categoria': 'Brinquedos', 'descricao': 'Brinquedos para todas as idades'}
-            ]
-            for cat_data in categorias_exemplo:
-                db.session.add(Categoria(**cat_data))
-            try:
-                db.session.commit()
-                print("Categorias de exemplo adicionadas.")
-            except Exception as e:
-                db.session.rollback()
-                app.logger.error(f"Erro ao adicionar categorias de exemplo: {e}")
 
+@app.route('/uploads/<path:filename>')
+def uploaded_file(filename):
+    return send_from_directory('uploads', filename)
+
+# GET - Obter dados da tela de negociação por produto
+@app.route('/negociacao/<int:id_produto>', methods=['GET'])
+@jwt_required()
+def obter_dados_negociacao_por_produto(id_produto):
+    try:
+        current_user_id = get_current_user_id_from_token()
+    except ValueError as e:
+        return jsonify({'msg': str(e)}), 400
+
+    produto = Produto.query.get(id_produto)
+    if not produto:
+        return jsonify({'msg': 'Produto não encontrado'}), 404
+
+    solicitacao = Solicitacao.query.filter(
+        Solicitacao.id_produto_desejado == id_produto,
+        Solicitacao.status.in_([
+            StatusSolicitacao.PROCESSANDO,
+            StatusSolicitacao.PENDENTE,
+            StatusSolicitacao.APROVADA
+        ])
+    ).order_by(Solicitacao.id_solicitacao.desc()).first()
+
+    # Se não existe solicitação e o usuário logado NÃO for o dono do produto, cria uma solicitação PROCESSANDO
+    if not solicitacao and produto.id_usuario != current_user_id:
+        solicitacao = Solicitacao(
+            id_usuario_solicitante=current_user_id,
+            id_produto_desejado=id_produto,
+            status=StatusSolicitacao.PROCESSANDO
+        )
+        db.session.add(solicitacao)
+        db.session.commit()
+        solicitacao = Solicitacao.query.get(solicitacao.id_solicitacao)
+
+    if not solicitacao:
+        return jsonify({'msg': 'Negociação não encontrada'}), 404
+
+    # Só o solicitante ou o dono do produto pode acessar
+    if current_user_id != solicitacao.id_usuario_solicitante and current_user_id != produto.id_usuario:
+        return jsonify({'msg': 'Acesso não autorizado a esta negociação'}), 403
+
+    # Só permite visualizar se a solicitação está PROCESSANDO, PENDENTE ou APROVADA
+    if solicitacao.status not in [StatusSolicitacao.PROCESSANDO, StatusSolicitacao.PENDENTE, StatusSolicitacao.APROVADA]:
+        return jsonify({'msg': 'Esta negociação foi encerrada e não pode mais ser visualizada.'}), 403
+
+    mensagens = Mensagem.query.filter_by(id_solicitacao=solicitacao.id_solicitacao).order_by(Mensagem.data_envio.asc()).all()
+
+    # Obtém o endereço do proprietário do produto, se disponível
+    proprietario = produto.proprietario
+    endereco = None
+    if proprietario:
+        # Força o carregamento dos endereços
+        enderecos = getattr(proprietario, 'enderecos_usuario', [])
+        if enderecos:
+            endereco_obj = enderecos[0]
+            endereco = {
+                'cep': endereco_obj.cep,
+                'bairro': endereco_obj.bairro,
+                'rua': endereco_obj.rua,
+                'numero': endereco_obj.numero,
+                'complemento': endereco_obj.complemento,
+                'cidade': endereco_obj.cidade,
+                'estado': endereco_obj.estado
+            }
+
+    produto_dict = produto.to_dict(include_owner=True, include_categoria=True, include_imagens=True)
+    produto_dict['endereco'] = endereco
+
+    resultado = {
+        'solicitacao': solicitacao.to_dict(include_produtos_details=True),
+        'mensagens': [msg.to_dict() for msg in mensagens],
+        'produto_endereco': endereco  # opcional, se quiser fora do produto
+    }
+    resultado['solicitacao']['produto_desejado']['endereco'] = endereco
+
+    return jsonify(resultado), 200
+
+# GET - Obter dados da tela de negociação por solicitação
+@app.route('/negociacao/solicitacao/<int:id_solicitacao>', methods=['GET'])
+@jwt_required()
+def obter_dados_negociacao_por_solicitacao(id_solicitacao):
+    try:
+        current_user_id = get_current_user_id_from_token()
+    except ValueError as e:
+        return jsonify({'msg': str(e)}), 400
+        
+    solicitacao = Solicitacao.query.get(id_solicitacao)
+
+    if not solicitacao:
+        return jsonify({'msg': 'Negociação (Solicitação) não encontrada'}), 404
+
+    produto_desejado = Produto.query.get(solicitacao.id_produto_desejado)
+    if not produto_desejado: 
+         return jsonify({'msg': 'Produto desejado na negociação não encontrado (erro de integridade)'}), 404
+
+    if current_user_id != solicitacao.id_usuario_solicitante and current_user_id != produto_desejado.id_usuario:
+        return jsonify({'msg': 'Acesso não autorizado a esta negociação'}), 403
+
+    mensagens = Mensagem.query.filter_by(id_solicitacao=id_solicitacao).order_by(Mensagem.data_envio.asc()).all()
+    
+    resultado = {
+        'solicitacao': solicitacao.to_dict(include_produtos_details=True),
+        'mensagens': [msg.to_dict() for msg in mensagens],
+    }
+    return jsonify(resultado), 200
 
 if __name__ == '__main__':
     # create_tables() 

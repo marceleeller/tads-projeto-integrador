@@ -13,14 +13,15 @@ class StatusProduto(enum.Enum):
     USADO = 'USADO'
 
 class StatusSolicitacao(enum.Enum):
+    PROCESSANDO = 'PROCESSANDO'
     PENDENTE = 'PENDENTE'
     APROVADA = 'APROVADA'
     RECUSADA = 'RECUSADA'
     CANCELADA = 'CANCELADA'
 
 class TipoDeInterese(enum.Enum):
-    TROCA = 'TROCA'
-    DOAÇÃO = 'DOAÇÃO'
+    TROCA = 1
+    DOAÇÃO = 2
 
 # --- Modelos ---
 
@@ -71,30 +72,33 @@ class Produto(db.Model):
     nome_produto = db.Column(db.String(80), nullable=False)
     descricao = db.Column(db.String(200), nullable=False)
     id_usuario = db.Column(db.Integer, db.ForeignKey('usuario.id_usuario'), nullable=False)
-    interesse = db.Column(db.Enum(TipoDeInterese), nullable=False)
     data_cadastro = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
-    
+    id_categoria = db.Column(db.Integer, db.ForeignKey('categoria.id_categoria'))
+    status = db.Column(db.Enum(StatusProduto), nullable=False, default=StatusProduto.NOVO)  # <-- Adicionado
+    quantidade = db.Column(db.Integer, nullable=False, default=1)  # <-- Adicionado
+
     # Relacionamentos
     imagens = db.relationship("Imagem", backref="produto", lazy="selectin", cascade="all, delete-orphan")
-    categorias = db.relationship("Categoria", secondary=tabela_produto_categoria, backref="produtos", lazy="selectin")
-    
+    categoria = db.relationship("Categoria", foreign_keys=[id_categoria])
+
     # Relacionamento explícito com Usuario (proprietário do produto)
     proprietario = db.relationship("Usuario", back_populates="produtos")
 
-    def to_dict(self, include_owner=False, include_categorias=True, include_imagens=True):
+    def to_dict(self, include_owner=False, include_categoria=True, include_imagens=True):
         data = {
             'id_produto': self.id_produto,
             'nome_produto': self.nome_produto,
             'descricao': self.descricao,
             'id_usuario': self.id_usuario,
-            'interesse': self.interesse.value if self.interesse else None,
-            'data_cadastro': self.data_cadastro.isoformat() if self.data_cadastro else None
+            'data_cadastro': self.data_cadastro.isoformat() if self.data_cadastro else None,
+            'status': self.status.value if self.status else None,           # <-- Adicionado
+            'quantidade': self.quantidade                                   # <-- Adicionado
         }
         if include_owner and self.proprietario:
             data['proprietario_details'] = self.proprietario.to_dict_simple()
         
-        if include_categorias:
-            data['categorias'] = [cat.to_dict() for cat in self.categorias]
+        if include_categoria and self.categoria:
+            data['categoria'] = self.categoria.to_dict()
         
         if include_imagens:
             data['imagens'] = [img.to_dict() for img in self.imagens]
@@ -121,7 +125,7 @@ class Usuario(UserMixin, db.Model):
     produtos = db.relationship("Produto", back_populates="proprietario", lazy="dynamic")
     
     solicitacoes_feitas = db.relationship("Solicitacao", foreign_keys="Solicitacao.id_usuario_solicitante", backref="usuario_solicitante_obj", lazy="dynamic")
-    mensagens_enviadas = db.relationship("Mensagem", foreign_keys="Mensagem.id_usuario_remetente", backref="usuario_remetente_obj", lazy="dynamic")
+    mensagens_enviadas = db.relationship("Mensagem", foreign_keys="Mensagem.id_usuario", backref="usuario_obj", lazy="dynamic")
 
     def set_password(self, password):
         self.password_hash = generate_password_hash(password, method='pbkdf2:sha256')
@@ -182,22 +186,19 @@ class Mensagem(db.Model):
     id_mensagem = db.Column(db.Integer, primary_key=True, autoincrement=True)
     conteudo_mensagem = db.Column(db.String(500), nullable=False)
     data_envio = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
-    id_usuario_remetente = db.Column(db.Integer, db.ForeignKey('usuario.id_usuario'), nullable=False)
+    id_usuario = db.Column(db.Integer, db.ForeignKey('usuario.id_usuario'), nullable=False)
     id_solicitacao = db.Column(db.Integer, db.ForeignKey('solicitacao.id_solicitacao'), nullable=False)
-    # O atributo 'usuario_remetente_obj' será criado pelo backref de Usuario.mensagens_enviadas
+    # O atributo 'usuario_obj' será criado pelo backref de Usuario.mensagens_enviadas
     # O atributo 'solicitacao_obj' será criado pelo backref de Solicitacao.mensagens
 
     def to_dict(self):
-        data = {
+        return {
             'id_mensagem': self.id_mensagem,
             'conteudo_mensagem': self.conteudo_mensagem,
-            'data_envio': self.data_envio.isoformat() if self.data_envio else None,
-            'id_usuario_remetente': self.id_usuario_remetente,
-            'id_solicitacao': self.id_solicitacao
+            'id_usuario': self.id_usuario,
+            'nome_remetente': self.usuario_obj.nome_usuario if self.usuario_obj else None,
+            'data_envio': self.data_envio.isoformat() if self.data_envio else None
         }
-        if hasattr(self, 'usuario_remetente_obj') and self.usuario_remetente_obj:
-            data['remetente'] = self.usuario_remetente_obj.to_dict_simple()
-        return data
 
     def __repr__(self) -> str:
         return f"<Mensagem(id={self.id_mensagem}, data='{self.data_envio}')>"
@@ -222,21 +223,21 @@ class Solicitacao(db.Model):
     id_solicitacao = db.Column(db.Integer, primary_key=True, autoincrement=True)
     status = db.Column(db.Enum(StatusSolicitacao), nullable=False, default=StatusSolicitacao.PENDENTE)
     data_solicitacao = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
-    
     id_usuario_solicitante = db.Column(db.Integer, db.ForeignKey('usuario.id_usuario'), nullable=False)
     id_produto_desejado = db.Column(db.Integer, db.ForeignKey('produto.id_produto'), nullable=False)
-    id_produto_ofertado = db.Column(db.Integer, db.ForeignKey('produto.id_produto'), nullable=True)
-    
-    tipo_solicitacao = db.Column(db.Enum(TipoDeInterese), nullable=False)
     id_transacao = db.Column(db.Integer, db.ForeignKey('transacao.id_transacao'), nullable=True)
-    
+
     # Relacionamentos
-    # 'usuario_solicitante_obj' é criado pelo backref de Usuario.solicitacoes_feitas
     produto_desejado_obj = db.relationship("Produto", foreign_keys=[id_produto_desejado], backref="solicitacoes_para_este_produto")
-    produto_ofertado_obj = db.relationship("Produto", foreign_keys=[id_produto_ofertado], backref="solicitacoes_onde_foi_ofertado")
-    
-    transacao_obj = db.relationship("Transacao", backref=db.backref("solicitacao_associada", uselist=False))
+    transacao_obj = db.relationship("Transacao", backref=db.backref("solicitacoes", lazy="dynamic"))
     mensagens = db.relationship("Mensagem", backref="solicitacao_obj", lazy="dynamic", cascade="all, delete-orphan")
+
+    # Novo relacionamento: produtos ofertados na troca
+    produtos_ofertados = db.relationship(
+        "Produto",
+        secondary="SOLICITACAO_PRODUTO_OFERTADO",
+        backref="solicitacoes_ofertadas"
+    )
 
     def to_dict(self, include_produtos_details=False):
         data = {
@@ -245,9 +246,9 @@ class Solicitacao(db.Model):
             'data_solicitacao': self.data_solicitacao.isoformat() if self.data_solicitacao else None,
             'id_usuario_solicitante': self.id_usuario_solicitante,
             'id_produto_desejado': self.id_produto_desejado,
-            'id_produto_ofertado': self.id_produto_ofertado,
-            'tipo_solicitacao': self.tipo_solicitacao.value if self.tipo_solicitacao else None,
-            'id_transacao': self.id_transacao
+            'id_transacao': self.id_transacao,
+            # Inclui os IDs dos produtos ofertados
+            'produtos_ofertados': [p.id_produto for p in self.produtos_ofertados]
         }
         if hasattr(self, 'usuario_solicitante_obj') and self.usuario_solicitante_obj:
              data['usuario_solicitante'] = self.usuario_solicitante_obj.to_dict_simple()
@@ -255,9 +256,18 @@ class Solicitacao(db.Model):
         if include_produtos_details:
             if self.produto_desejado_obj:
                 data['produto_desejado'] = self.produto_desejado_obj.to_dict()
-            if self.produto_ofertado_obj:
-                data['produto_ofertado'] = self.produto_ofertado_obj.to_dict()
+            # Inclua detalhes dos produtos ofertados, se desejar:
+            data['produtos_ofertados_details'] = [p.to_dict() for p in self.produtos_ofertados]
+        
+        if self.produto_desejado_obj and self.produto_desejado_obj.categoria:
+            data['tipo_solicitacao'] = self.produto_desejado_obj.categoria.nome_categoria
+
         return data
 
     def __repr__(self) -> str:
         return f"<Solicitacao(id={self.id_solicitacao}, status='{self.status.value}')>"
+
+class SolicitacaoProdutoOfertado(db.Model):
+    __tablename__ = 'SOLICITACAO_PRODUTO_OFERTADO'
+    id_solicitacao = db.Column(db.Integer, db.ForeignKey('solicitacao.id_solicitacao', ondelete='CASCADE'), primary_key=True)
+    id_produto = db.Column(db.Integer, db.ForeignKey('produto.id_produto', ondelete='CASCADE'), primary_key=True)

@@ -1,2 +1,5 @@
 backend/venv/
 .env
+
+backend
+uploads

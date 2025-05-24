@@ -13,6 +13,7 @@
     <link rel="stylesheet" href="../style/style.css">
 
     <!-- JS -->
+     <script src="../js/config.js"></script>
     <script defer src="../js/pagina-inicial.js"></script>
     <script defer src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.5/dist/js/bootstrap.bundle.min.js" integrity="sha384-k6d4wzSIapyDyv1kpU366/PK5hCdSbCRGRCMv+eplOQJWyd1fbcAu9OCUj5zNLiq" crossorigin="anonymous"></script>
 </head>
@@ -47,7 +48,7 @@
                                 </a>
                             </li>
                             <li class="nav-item">
-                                <button class="btn btn-danger nav-link text-white">
+                                <button id="logout" class="btn btn-danger nav-link text-white">
                                     <i class="fas fa-sign-out-alt"></i> Sair
                                 </button>
                             </li>
@@ -78,64 +79,9 @@
 
         <!-- Lista de Produtos -->
         <div class="row g-4" id="product-list">
-            <!-- Card 1 - Troca -->
-            <div class="col-md-4" data-category="troca">
-                <div class="card shadow">
-                    <!-- Carrossel de Imagens -->
-                    <div id="carouselProduto1" class="carousel slide" data-bs-ride="carousel">
-                        <div class="carousel-inner">
-                            <div class="carousel-item active">
-                                <img src="../assets/placeholder.png" class="d-block w-100 img-fluid" alt="Imagem 1 do Produto 1" style="height: 200px; object-fit: cover;">
-                            </div>
-                            <div class="carousel-item">
-                                <img src="../assets/placeholder.png" class="d-block w-100 img-fluid" alt="Imagem 2 do Produto 1" style="height: 200px; object-fit: cover;">
-                            </div>
-                            <div class="carousel-item">
-                                <img src="../assets/placeholder.png" class="d-block w-100 img-fluid" alt="Imagem 3 do Produto 1" style="height: 200px; object-fit: cover;">
-                            </div>
-                        </div>
-                        <button class="carousel-control-prev" type="button" data-bs-target="#carouselProduto1" data-bs-slide="prev">
-                            <span class="carousel-control-prev-icon" aria-hidden="true"></span>
-                            <span class="visually-hidden">Anterior</span>
-                        </button>
-                        <button class="carousel-control-next" type="button" data-bs-target="#carouselProduto1" data-bs-slide="next">
-                            <span class="carousel-control-next-icon" aria-hidden="true"></span>
-                            <span class="visually-hidden">Próximo</span>
-                        </button>
-                    </div>
-                    <!-- Fim do Carrossel -->
-
-                    <div class="card-body">
-                        <h5 class="card-title">Produto 1</h5>
-                        <p class="card-text">Descrição breve do produto 1.</p>
-                        <span class="badge bg-warning">Troca</span>
-                        <a href="negociacao-troca.html?id=1&name=Produto%201&description=Descrição%20breve%20do%20produto%201&category=troca" class="btn btn-primary mt-2 w-100">Negociar</a>
-                    </div>
-                </div>
-            </div>
-            <!-- Card 2 - Doação -->
-            <div class="col-md-4" data-category="doacao">
-                <div class="card shadow">
-                    <img src="../assets/placeholder.png" class="card-img-top img-fluid" alt="Produto 2" style="height: 200px; object-fit: cover;">
-                    <div class="card-body">
-                        <h5 class="card-title">Produto 2</h5>
-                        <p class="card-text">Descrição breve do produto 2.</p>
-                        <span class="badge bg-success">Doação</span>
-                        <a href="negociacao-doacao.html?id=2&name=Produto%202&description=Descrição%20breve%20do%20produto%202&category=doacao" class="btn btn-primary mt-2 w-100">Negociar</a>
-                    </div>
-                </div>
-            </div>
-            <!-- Card 3 - Troca -->
-            <div class="col-md-4" data-category="troca">
-                <div class="card shadow">
-                    <img src="../assets/placeholder.png" class="card-img-top img-fluid" alt="Produto 3" style="height: 200px; object-fit: cover;">
-                    <div class="card-body">
-                        <h5 class="card-title">Produto 3</h5>
-                        <p class="card-text">Descrição breve do produto 3.</p>
-                        <span class="badge bg-warning">Troca</span>
-                        <a href="negociacao-troca.html?id=3&name=Produto%203&description=Descrição%20breve%20do%20produto%203&category=troca" class="btn btn-primary mt-2 w-100">Negociar</a>
-                    </div>
-                </div>
+            <!-- Os cards dos produtos serão inseridos aqui pelo JS -->
+            <div class="col-md-4" data-category="${categoria}">
+                <!-- Conteúdo do card do produto -->
             </div>
         </div>
     </div>

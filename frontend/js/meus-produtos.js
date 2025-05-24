@@ -15,7 +15,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
         const produtos = await response.json();
 
-        console.log(produtos);
+        console.log(produtos)
 
         if (!response.ok) {
             container.innerHTML = `<div class="alert alert-danger">${produtos.msg || 'Erro ao carregar produtos.'}</div>`;
@@ -38,25 +38,62 @@ document.addEventListener('DOMContentLoaded', async () => {
             let categoriaBadge = '';
             if (produto.categoria && produto.categoria.nome_categoria) {
                 let nomeCategoria = produto.categoria.nome_categoria;
-                // Deixa "Troca" ou "Doação" com a primeira letra maiúscula e o resto minúsculo
                 if (nomeCategoria.toUpperCase() === 'DOAÇÃO') nomeCategoria = 'Doação';
                 if (nomeCategoria.toUpperCase() === 'TROCA') nomeCategoria = 'Troca';
                 categoriaBadge = `<span class="badge bg-${nomeCategoria === 'Troca' ? 'warning' : 'success'} me-2">${nomeCategoria}</span>`;
             }
 
+            // Busca a solicitação ativa (PENDENTE ou APROVADA)
+            let solicitacaoAtiva = null;
+            if (produto.solicitacoes && produto.solicitacoes.length > 0) {
+                solicitacaoAtiva = produto.solicitacoes.find(s =>
+                    s.status === 'PENDENTE' || s.status === 'APROVADA'
+                );
+            }
+
+            // Busca solicitação CANCELADA feita pelo usuário logado (não dono)
+            const userId = localStorage.getItem('id_usuario');
+            let solicitacaoCanceladaDoUsuario = null;
+            if (produto.solicitacoes && produto.solicitacoes.length > 0) {
+                solicitacaoCanceladaDoUsuario = produto.solicitacoes.find(s =>
+                    s.status === 'CANCELADA' && String(s.id_usuario_solicitante) === String(userId)
+                );
+            }
+
             // Badge de status da solicitação
             let statusBadge = '';
-            const statusSolicitacao = produto.status_solicitacao;
-            if (statusSolicitacao === 'PENDENTE') {
-                statusBadge = '<span class="badge bg-warning text-dark">Pendente</span>';
-            } else if (statusSolicitacao === 'APROVADA') {
-                statusBadge = '<span class="badge bg-success">Aprovada</span>';
-            } else if (statusSolicitacao === 'RECUSADA') {
-                statusBadge = '<span class="badge bg-danger">Recusada</span>';
-            } else if (statusSolicitacao === 'CANCELADA') {
-                statusBadge = '<span class="badge bg-secondary">Cancelada</span>';
+            if (solicitacaoAtiva) {
+                if (solicitacaoAtiva.status === 'PENDENTE') {
+                    statusBadge = '<span class="badge bg-warning text-dark">Pendente</span>';
+                } else if (solicitacaoAtiva.status === 'APROVADA') {
+                    statusBadge = '<span class="badge bg-success">Aprovada</span>';
+                }
+            } else if (solicitacaoCanceladaDoUsuario && String(produto.id_usuario) !== String(userId)) {
+                statusBadge = '<span class="badge bg-danger text-white">Cancelada</span>';
             } else {
                 statusBadge = '<span class="badge bg-primary">Disponível</span>';
+            }
+
+            // Lógica dos botões
+            let botoes = `
+                <a href="cadastro-produto.html?id=${produto.id_produto}" class="btn btn-primary w-50">Editar</a>
+                <button class="btn btn-outline-secondary w-50" onclick="excluirProduto(${produto.id_produto})">Excluir</button>
+            `;
+
+            const temNegociacaoAtiva = !!solicitacaoAtiva;
+
+            if (temNegociacaoAtiva) {
+                const isTroca = produto.categoria && (
+                    produto.categoria.tipo === 'TROCA' ||
+                    (produto.categoria.nome_categoria && produto.categoria.nome_categoria.toUpperCase().includes('TROCA'))
+                );
+                const urlNegociacao = isTroca
+                    ? `negociacao-troca.html?id=${produto.id_produto}`
+                    : `negociacao-doacao.html?id=${produto.id_produto}`;
+                botoes = `<a href="${urlNegociacao}" class="btn btn-primary w-100">Ver Negociação</a>`;
+            } else if (solicitacaoCanceladaDoUsuario && String(produto.id_usuario) !== String(userId)) {
+                // Não mostra botão algum
+                botoes = '';
             }
 
             container.innerHTML += `
@@ -72,8 +109,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                                 ${statusBadge}
                             </div>
                             <div class="d-flex gap-2 mt-3">
-                                <a href="cadastro-produto.html?id=${produto.id_produto}" class="btn btn-primary w-50">Editar</a>
-                                <button class="btn btn-outline-secondary w-50" onclick="excluirProduto(${produto.id_produto})">Excluir</button>
+                                ${botoes}
                             </div>
                         </div>
                     </div>
@@ -85,7 +121,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 });
 
-// Função para excluir produto (opcional)
+// Função para excluir produto (mantida)
 async function excluirProduto(id_produto) {
     if (!confirm('Tem certeza que deseja excluir este produto?')) return;
     const token = localStorage.getItem('access_token');
@@ -107,3 +143,9 @@ async function excluirProduto(id_produto) {
         alert('Erro ao conectar ao servidor.');
     }
 }
+
+document.querySelector('#logout').addEventListener('click', function () {
+        localStorage.clear();
+        window.location.href = '../index.html';
+    
+});

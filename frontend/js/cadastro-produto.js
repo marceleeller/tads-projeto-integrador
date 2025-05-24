@@ -175,4 +175,9 @@ document.addEventListener('DOMContentLoaded', async () => {
             }
         });
     }
+
+    document.querySelector('#logout').addEventListener('click', function () {
+        localStorage.clear();
+        window.location.href = '../index.html';
+    });
 });

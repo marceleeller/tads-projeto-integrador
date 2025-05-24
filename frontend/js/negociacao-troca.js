@@ -93,3 +93,8 @@ function finalizeTrade() {
     alert('Troca finalizada com sucesso!');
     // Aqui você pode adicionar lógica para salvar a troca no banco de dados ou redirecionar o usuário
 }
+
+document.querySelector('#logout').addEventListener('click', function () {
+    localStorage.clear();
+    window.location.href = '../index.html';
+});

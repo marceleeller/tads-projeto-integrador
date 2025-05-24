@@ -13,6 +13,7 @@ class StatusProduto(enum.Enum):
     USADO = 'USADO'
 
 class StatusSolicitacao(enum.Enum):
+    PROCESSANDO = 'PROCESSANDO'
     PENDENTE = 'PENDENTE'
     APROVADA = 'APROVADA'
     RECUSADA = 'RECUSADA'
@@ -124,7 +125,7 @@ class Usuario(UserMixin, db.Model):
     produtos = db.relationship("Produto", back_populates="proprietario", lazy="dynamic")
     
     solicitacoes_feitas = db.relationship("Solicitacao", foreign_keys="Solicitacao.id_usuario_solicitante", backref="usuario_solicitante_obj", lazy="dynamic")
-    mensagens_enviadas = db.relationship("Mensagem", foreign_keys="Mensagem.id_usuario_remetente", backref="usuario_remetente_obj", lazy="dynamic")
+    mensagens_enviadas = db.relationship("Mensagem", foreign_keys="Mensagem.id_usuario", backref="usuario_obj", lazy="dynamic")
 
     def set_password(self, password):
         self.password_hash = generate_password_hash(password, method='pbkdf2:sha256')
@@ -185,22 +186,19 @@ class Mensagem(db.Model):
     id_mensagem = db.Column(db.Integer, primary_key=True, autoincrement=True)
     conteudo_mensagem = db.Column(db.String(500), nullable=False)
     data_envio = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
-    id_usuario_remetente = db.Column(db.Integer, db.ForeignKey('usuario.id_usuario'), nullable=False)
+    id_usuario = db.Column(db.Integer, db.ForeignKey('usuario.id_usuario'), nullable=False)
     id_solicitacao = db.Column(db.Integer, db.ForeignKey('solicitacao.id_solicitacao'), nullable=False)
-    # O atributo 'usuario_remetente_obj' será criado pelo backref de Usuario.mensagens_enviadas
+    # O atributo 'usuario_obj' será criado pelo backref de Usuario.mensagens_enviadas
     # O atributo 'solicitacao_obj' será criado pelo backref de Solicitacao.mensagens
 
     def to_dict(self):
-        data = {
+        return {
             'id_mensagem': self.id_mensagem,
             'conteudo_mensagem': self.conteudo_mensagem,
-            'data_envio': self.data_envio.isoformat() if self.data_envio else None,
-            'id_usuario_remetente': self.id_usuario_remetente,
-            'id_solicitacao': self.id_solicitacao
+            'id_usuario': self.id_usuario,
+            'nome_remetente': self.usuario_obj.nome_usuario if self.usuario_obj else None,
+            'data_envio': self.data_envio.isoformat() if self.data_envio else None
         }
-        if hasattr(self, 'usuario_remetente_obj') and self.usuario_remetente_obj:
-            data['remetente'] = self.usuario_remetente_obj.to_dict_simple()
-        return data
 
     def __repr__(self) -> str:
         return f"<Mensagem(id={self.id_mensagem}, data='{self.data_envio}')>"

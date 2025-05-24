@@ -12,7 +12,8 @@ import uuid
 from models import (
     db, Usuario, Produto, Imagem, Categoria, Mensagem,
     Solicitacao, Transacao, EnderecoUsuario,
-    StatusSolicitacao, StatusProduto, TipoDeInterese, tabela_produto_categoria
+    StatusSolicitacao, StatusProduto, TipoDeInterese, tabela_produto_categoria,
+    SolicitacaoProdutoOfertado
 )
 
 # Configuracão
@@ -131,11 +132,11 @@ def obter_todos_produtos_ativos():
         .where(Solicitacao.status.in_([StatusSolicitacao.PENDENTE, StatusSolicitacao.APROVADA]))\
         .where(Solicitacao.id_produto_desejado.isnot(None))
 
-    # Subconsulta para IDs de produtos ofertados em solicitações PENDENTES ou APROVADAS
-    sq_ofertados = db.select(Solicitacao.id_produto_ofertado.distinct().label("produto_id"))\
-        .where(Solicitacao.status.in_([StatusSolicitacao.PENDENTE, StatusSolicitacao.APROVADA]))\
-        .where(Solicitacao.id_produto_ofertado.isnot(None))
-        
+    # Subconsulta para IDs de produtos ofertados em solicitações PENDENTES ou APROVADAS (tabela de relacionamento)
+    sq_ofertados = db.select(SolicitacaoProdutoOfertado.id_produto.distinct().label("produto_id"))\
+        .join(Solicitacao, SolicitacaoProdutoOfertado.id_solicitacao == Solicitacao.id_solicitacao)\
+        .where(Solicitacao.status.in_([StatusSolicitacao.PENDENTE, StatusSolicitacao.APROVADA]))
+
     ids_desejados_result = db.session.execute(sq_desejados).scalars().all()
     ids_ofertados_result = db.session.execute(sq_ofertados).scalars().all()
     todos_ids_produtos_em_negociacao = list(set(ids_desejados_result + ids_ofertados_result))
@@ -504,37 +505,52 @@ def criar_solicitacao():
     if solicitacao_existente:
         return jsonify({'msg': 'Você já possui uma solicitação ativa para este produto.'}), 409
 
-    id_produto_ofertado_frontend = data.get('id_produto_ofertado')
-    id_produto_ofertado_db = None 
+    # Descobre o tipo da solicitação pela categoria do produto desejado
+    tipo_solicitacao = produto_desejado.categoria.nome_categoria.upper()
 
-    if tipo_solicitacao == TipoDeInterese.TROCA:
-        if not id_produto_ofertado_frontend:
+    produtos_ofertados_ids = data.get('id_produto_ofertado', [])
+
+    print(f"Tipo de solicitação: {tipo_solicitacao}")
+    print(f"Produtos ofertados: {produtos_ofertados_ids}")
+
+    if tipo_solicitacao == 'TROCA':
+        # Aceita tanto int quanto lista
+        if not produtos_ofertados_ids:
             return jsonify({'msg': 'id_produto_ofertado é obrigatório para solicitações de TROCA'}), 400
-        try: 
-            id_produto_ofertado_int = int(id_produto_ofertado_frontend)
-        except ValueError:
-            return jsonify({'msg': 'ID do produto ofertado inválido.'}), 400
-        produto_ofertado = Produto.query.get(id_produto_ofertado_int)
-
-        if not produto_ofertado:
-            return jsonify({'msg': 'Produto ofertado não encontrado'}), 404
-        if produto_ofertado.id_usuario != current_user_id:
-            return jsonify({'msg': 'Você só pode ofertar seus próprios produtos'}), 403
-        if produto_ofertado.id_produto == produto_desejado.id_produto: 
-            return jsonify({'msg': 'Produto ofertado não pode ser o mesmo que o produto desejado'}),400
-        id_produto_ofertado_db = produto_ofertado.id_produto
-    elif id_produto_ofertado_frontend is not None: 
+        if isinstance(produtos_ofertados_ids, int):
+            produtos_ofertados_ids = [produtos_ofertados_ids]
+        if not isinstance(produtos_ofertados_ids, list):
+            return jsonify({'msg': 'id_produto_ofertado deve ser uma lista de IDs'}), 400
+        # Validação dos produtos ofertados
+        for id_produto in produtos_ofertados_ids:
+            produto_ofertado = Produto.query.get(id_produto)
+            if not produto_ofertado:
+                return jsonify({'msg': f'Produto ofertado {id_produto} não encontrado'}), 404
+            if produto_ofertado.id_usuario != current_user_id:
+                return jsonify({'msg': 'Você só pode ofertar seus próprios produtos'}), 403
+            if produto_ofertado.id_produto == produto_desejado.id_produto: 
+                return jsonify({'msg': 'Produto ofertado não pode ser o mesmo que o produto desejado'}),400
+    elif produtos_ofertados_ids:
         return jsonify({'msg': 'id_produto_ofertado não deve ser enviado para solicitações de DOAÇÃO'}), 400
 
     nova_solicitacao = Solicitacao(
         id_usuario_solicitante=current_user_id,
         id_produto_desejado=id_produto_desejado_int,
-        id_produto_ofertado=id_produto_ofertado_db, 
-        tipo_solicitacao=tipo_solicitacao,
         status=StatusSolicitacao.PENDENTE
     )
     try:
         db.session.add(nova_solicitacao)
+        db.session.flush()  # Garante o ID da solicitação
+
+        # Se for troca, salva os produtos ofertados na tabela de relacionamento
+        if tipo_solicitacao == TipoDeInterese.TROCA:
+            for id_produto in produtos_ofertados_ids:
+                rel = SolicitacaoProdutoOfertado(
+                    id_solicitacao=nova_solicitacao.id_solicitacao,
+                    id_produto=id_produto
+                )
+                db.session.add(rel)
+
         db.session.commit()
     except Exception as e:
         db.session.rollback()
@@ -584,6 +600,7 @@ def acao_solicitacao(id_solicitacao):
         db.session.add(nova_transacao)
         solicitacao.transacao_obj = nova_transacao
 
+        # Recusa outras solicitações pendentes para o mesmo produto desejado
         outras_solicitacoes_produto_desejado = Solicitacao.query.filter(
             Solicitacao.id_produto_desejado == solicitacao.id_produto_desejado,
             Solicitacao.id_solicitacao != solicitacao.id_solicitacao, 
@@ -591,22 +608,34 @@ def acao_solicitacao(id_solicitacao):
         ).all()
         for s_outra in outras_solicitacoes_produto_desejado:
             s_outra.status = StatusSolicitacao.RECUSADA
-        
-        if solicitacao.id_produto_ofertado: 
-            outras_solicitacoes_produto_ofertado = Solicitacao.query.filter(
-                ( (Solicitacao.id_produto_desejado == solicitacao.id_produto_ofertado) | \
-                  (Solicitacao.id_produto_ofertado == solicitacao.id_produto_ofertado) ),
-                Solicitacao.id_solicitacao != solicitacao.id_solicitacao, 
-                Solicitacao.status == StatusSolicitacao.PENDENTE
-            ).all()
-            for s_outra in outras_solicitacoes_produto_ofertado:
-                s_outra.status = StatusSolicitacao.RECUSADA
+            
     try:
         db.session.commit()
     except Exception as e:
         db.session.rollback()
         app.logger.error(f"Erro ao processar ação para solicitação {id_solicitacao}: {e}")
         return jsonify({'msg': 'Erro ao processar ação da solicitação no banco de dados.'}), 500
+
+    if novo_status == StatusSolicitacao.APROVADA and hasattr(solicitacao, "produtos_ofertados"):
+        # Só para troca: atualiza produtos ofertados se enviados
+        produtos_ofertados_ids = data.get('id_produto_ofertado', [])
+        if produtos_ofertados_ids:
+            # Remove antigos
+            SolicitacaoProdutoOfertado.query.filter_by(id_solicitacao=solicitacao.id_solicitacao).delete()
+            # Adiciona novos
+            for id_produto in produtos_ofertados_ids:
+                rel = SolicitacaoProdutoOfertado(
+                    id_solicitacao=solicitacao.id_solicitacao,
+                    id_produto=id_produto
+                )
+                db.session.add(rel)
+
+    try:
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        app.logger.error(f"Erro ao atualizar produtos ofertados para solicitação {id_solicitacao}: {e}")
+        return jsonify({'msg': 'Erro ao atualizar produtos ofertados no banco de dados.'}), 500
         
     return jsonify(solicitacao.to_dict(include_produtos_details=True)), 200
 
@@ -653,23 +682,43 @@ def marcar_solicitacao_pendente(id_solicitacao):
     if not solicitacao:
         return jsonify({'msg': 'Solicitação não encontrada'}), 404
 
-    # Só o solicitante pode ativar sua solicitação
     if solicitacao.id_usuario_solicitante != current_user_id:
         return jsonify({'msg': 'Você não pode alterar esta solicitação.'}), 403
 
-    # Só pode alterar se estiver PROCESSANDO
     if solicitacao.status != StatusSolicitacao.PROCESSANDO:
         return jsonify({'msg': f'Só é possível ativar solicitações com status PROCESSANDO. Status atual: {solicitacao.status.value}'}), 409
 
-    # Verifica se existe qualquer solicitação para o mesmo produto com status diferente de PROCESSANDO, CANCELADA ou RECUSADA
-    solicitacao_bloqueante = Solicitacao.query.filter(
-        Solicitacao.id_produto_desejado == solicitacao.id_produto_desejado,
-        Solicitacao.id_solicitacao != id_solicitacao,
-        Solicitacao.status.notin_([StatusSolicitacao.PROCESSANDO, StatusSolicitacao.CANCELADA, StatusSolicitacao.RECUSADA])
-    ).first()
-    if solicitacao_bloqueante:
-        return jsonify({'msg': 'Já existe uma solicitação ativa para este produto (PENDENTE ou APROVADA). Aguarde a finalização para tentar novamente.'}), 409
+    data = request.get_json() or {}
+    produtos_ofertados_ids = data.get('id_produto_ofertado', [])
 
+    # Só exige produtos ofertados se for troca
+    tipo_solicitacao = solicitacao.produto_desejado_obj.categoria.nome_categoria.upper()
+    if tipo_solicitacao == 'TROCA':
+        if not produtos_ofertados_ids:
+            return jsonify({'msg': 'id_produto_ofertado é obrigatório para solicitações de TROCA'}), 400
+        if isinstance(produtos_ofertados_ids, int):
+            produtos_ofertados_ids = [produtos_ofertados_ids]
+        if not isinstance(produtos_ofertados_ids, list):
+            return jsonify({'msg': 'id_produto_ofertado deve ser uma lista de IDs'}), 400
+
+        # Remove antigos
+        SolicitacaoProdutoOfertado.query.filter_by(id_solicitacao=solicitacao.id_solicitacao).delete()
+        # Adiciona novos
+        for id_produto in produtos_ofertados_ids:
+            produto_ofertado = Produto.query.get(id_produto)
+            if not produto_ofertado:
+                return jsonify({'msg': f'Produto ofertado {id_produto} não encontrado'}), 404
+            if produto_ofertado.id_usuario != current_user_id:
+                return jsonify({'msg': 'Você só pode ofertar seus próprios produtos'}), 403
+            if produto_ofertado.id_produto == solicitacao.id_produto_desejado:
+                return jsonify({'msg': 'Produto ofertado não pode ser o mesmo que o produto desejado'}), 400
+            rel = SolicitacaoProdutoOfertado(
+                id_solicitacao=solicitacao.id_solicitacao,
+                id_produto=id_produto
+            )
+            db.session.add(rel)
+
+    # Atualiza status
     solicitacao.status = StatusSolicitacao.PENDENTE
     try:
         db.session.commit()
@@ -707,25 +756,25 @@ def obter_dados_negociacao_por_produto(id_produto):
     if not produto:
         return jsonify({'msg': 'Produto não encontrado'}), 404
 
-    if current_user_id == produto.id_usuario:
-        solicitacao = Solicitacao.query.filter(
-            Solicitacao.id_produto_desejado == id_produto,
-            Solicitacao.status.in_([
-                StatusSolicitacao.PROCESSANDO,
-                StatusSolicitacao.PENDENTE,
-                StatusSolicitacao.APROVADA
-            ])
-        ).order_by(Solicitacao.id_solicitacao.desc()).first()
-    else:
-        solicitacao = Solicitacao.query.filter(
-            Solicitacao.id_usuario_solicitante == current_user_id,
-            Solicitacao.id_produto_desejado == id_produto,
-            Solicitacao.status.in_([
-                StatusSolicitacao.PROCESSANDO,
-                StatusSolicitacao.PENDENTE,
-                StatusSolicitacao.APROVADA
-            ])
-        ).order_by(Solicitacao.id_solicitacao.desc()).first()
+    solicitacao = Solicitacao.query.filter(
+        Solicitacao.id_produto_desejado == id_produto,
+        Solicitacao.status.in_([
+            StatusSolicitacao.PROCESSANDO,
+            StatusSolicitacao.PENDENTE,
+            StatusSolicitacao.APROVADA
+        ])
+    ).order_by(Solicitacao.id_solicitacao.desc()).first()
+
+    # Se não existe solicitação e o usuário logado NÃO for o dono do produto, cria uma solicitação PROCESSANDO
+    if not solicitacao and produto.id_usuario != current_user_id:
+        solicitacao = Solicitacao(
+            id_usuario_solicitante=current_user_id,
+            id_produto_desejado=id_produto,
+            status=StatusSolicitacao.PROCESSANDO
+        )
+        db.session.add(solicitacao)
+        db.session.commit()
+        solicitacao = Solicitacao.query.get(solicitacao.id_solicitacao)
 
     if not solicitacao:
         return jsonify({'msg': 'Negociação não encontrada'}), 404
@@ -740,10 +789,34 @@ def obter_dados_negociacao_por_produto(id_produto):
 
     mensagens = Mensagem.query.filter_by(id_solicitacao=solicitacao.id_solicitacao).order_by(Mensagem.data_envio.asc()).all()
 
+    # Obtém o endereço do proprietário do produto, se disponível
+    proprietario = produto.proprietario
+    endereco = None
+    if proprietario:
+        # Força o carregamento dos endereços
+        enderecos = getattr(proprietario, 'enderecos_usuario', [])
+        if enderecos:
+            endereco_obj = enderecos[0]
+            endereco = {
+                'cep': endereco_obj.cep,
+                'bairro': endereco_obj.bairro,
+                'rua': endereco_obj.rua,
+                'numero': endereco_obj.numero,
+                'complemento': endereco_obj.complemento,
+                'cidade': endereco_obj.cidade,
+                'estado': endereco_obj.estado
+            }
+
+    produto_dict = produto.to_dict(include_owner=True, include_categoria=True, include_imagens=True)
+    produto_dict['endereco'] = endereco
+
     resultado = {
         'solicitacao': solicitacao.to_dict(include_produtos_details=True),
         'mensagens': [msg.to_dict() for msg in mensagens],
+        'produto_endereco': endereco  # opcional, se quiser fora do produto
     }
+    resultado['solicitacao']['produto_desejado']['endereco'] = endereco
+
     return jsonify(resultado), 200
 
 # GET - Obter dados da tela de negociação por solicitação

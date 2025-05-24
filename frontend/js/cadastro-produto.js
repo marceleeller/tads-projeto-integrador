@@ -6,6 +6,14 @@ function getProductIdFromUrl() {
 
 // Preencher os campos do formulário com dados do produto (edição)
 document.addEventListener('DOMContentLoaded', async () => {
+    const nomeUsuario = localStorage.getItem('nome_usuario');
+    if (nomeUsuario) {
+        const spanBemVindo = document.getElementById('bem-vindo-usuario');
+        if (spanBemVindo) {
+            spanBemVindo.textContent = `Bem-vindo(a), ${nomeUsuario}`;
+        }
+    }
+
     const productId = getProductIdFromUrl();
 
     // Troca o texto do botão se for edição
@@ -45,7 +53,6 @@ document.addEventListener('DOMContentLoaded', async () => {
                         previewContainer.innerHTML = '';
                         produto.imagens.forEach(imagem => {
                             const img = document.createElement('img');
-                            // Use o mesmo padrão de URL das outras telas
                             img.src = `${CONFIG.API_BASE_URL.replace('/api', '')}/${imagem.url_imagem}`;
                             img.alt = imagem.url_imagem;
                             img.style.maxWidth = '100px';

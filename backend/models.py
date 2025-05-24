@@ -225,14 +225,19 @@ class Solicitacao(db.Model):
     data_solicitacao = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
     id_usuario_solicitante = db.Column(db.Integer, db.ForeignKey('usuario.id_usuario'), nullable=False)
     id_produto_desejado = db.Column(db.Integer, db.ForeignKey('produto.id_produto'), nullable=False)
-    id_produto_ofertado = db.Column(db.Integer, db.ForeignKey('produto.id_produto'), nullable=True)
-    id_transacao = db.Column(db.Integer, db.ForeignKey('transacao.id_transacao'), nullable=True)  # <-- Adicionado
+    id_transacao = db.Column(db.Integer, db.ForeignKey('transacao.id_transacao'), nullable=True)
 
     # Relacionamentos
     produto_desejado_obj = db.relationship("Produto", foreign_keys=[id_produto_desejado], backref="solicitacoes_para_este_produto")
-    produto_ofertado_obj = db.relationship("Produto", foreign_keys=[id_produto_ofertado], backref="solicitacoes_onde_foi_ofertado")
-    transacao_obj = db.relationship("Transacao", backref=db.backref("solicitacoes", lazy="dynamic"))  # <-- Corrigido
+    transacao_obj = db.relationship("Transacao", backref=db.backref("solicitacoes", lazy="dynamic"))
     mensagens = db.relationship("Mensagem", backref="solicitacao_obj", lazy="dynamic", cascade="all, delete-orphan")
+
+    # Novo relacionamento: produtos ofertados na troca
+    produtos_ofertados = db.relationship(
+        "Produto",
+        secondary="SOLICITACAO_PRODUTO_OFERTADO",
+        backref="solicitacoes_ofertadas"
+    )
 
     def to_dict(self, include_produtos_details=False):
         data = {
@@ -241,8 +246,9 @@ class Solicitacao(db.Model):
             'data_solicitacao': self.data_solicitacao.isoformat() if self.data_solicitacao else None,
             'id_usuario_solicitante': self.id_usuario_solicitante,
             'id_produto_desejado': self.id_produto_desejado,
-            'id_produto_ofertado': self.id_produto_ofertado,
-            'id_transacao': self.id_transacao
+            'id_transacao': self.id_transacao,
+            # Inclui os IDs dos produtos ofertados
+            'produtos_ofertados': [p.id_produto for p in self.produtos_ofertados]
         }
         if hasattr(self, 'usuario_solicitante_obj') and self.usuario_solicitante_obj:
              data['usuario_solicitante'] = self.usuario_solicitante_obj.to_dict_simple()
@@ -250,8 +256,8 @@ class Solicitacao(db.Model):
         if include_produtos_details:
             if self.produto_desejado_obj:
                 data['produto_desejado'] = self.produto_desejado_obj.to_dict()
-            if self.produto_ofertado_obj:
-                data['produto_ofertado'] = self.produto_ofertado_obj.to_dict()
+            # Inclua detalhes dos produtos ofertados, se desejar:
+            data['produtos_ofertados_details'] = [p.to_dict() for p in self.produtos_ofertados]
         
         if self.produto_desejado_obj and self.produto_desejado_obj.categoria:
             data['tipo_solicitacao'] = self.produto_desejado_obj.categoria.nome_categoria
@@ -260,3 +266,8 @@ class Solicitacao(db.Model):
 
     def __repr__(self) -> str:
         return f"<Solicitacao(id={self.id_solicitacao}, status='{self.status.value}')>"
+
+class SolicitacaoProdutoOfertado(db.Model):
+    __tablename__ = 'SOLICITACAO_PRODUTO_OFERTADO'
+    id_solicitacao = db.Column(db.Integer, db.ForeignKey('solicitacao.id_solicitacao', ondelete='CASCADE'), primary_key=True)
+    id_produto = db.Column(db.Integer, db.ForeignKey('produto.id_produto', ondelete='CASCADE'), primary_key=True)

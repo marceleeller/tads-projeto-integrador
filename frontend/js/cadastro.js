@@ -21,7 +21,7 @@ document.getElementById('cep').addEventListener('blur', function () {
 
 document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('cadastro-form').addEventListener('submit', async function (event) {
-        event.preventDefault(); // Impede o envio padrão do formulário
+        event.preventDefault();
 
         // Captura os valores dos campos
         const data = {

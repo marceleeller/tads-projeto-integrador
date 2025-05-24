@@ -26,7 +26,7 @@
                     <!-- Título e Bem-vindo -->
                     <div class="d-flex align-items-center">
                         <a class="navbar-brand fw-bold" href="#">Troque+</a>
-                        <span class="ms-3 d-none d-lg-block">Bem-vindo, usuário</span>
+                        <span id="bem-vindo-usuario" class="ms-3 d-none d-lg-block">Bem-vindo, usuário</span>
                     </div>
 
                     <!-- Botão do Menu Hambúrguer -->
@@ -62,6 +62,31 @@
     <!-- Conteúdo -->
     <div class="container my-5">
         <h1 class="text-center mb-4">Meus Produtos</h1>
+
+        <!-- Filtros -->
+        <div class="row mb-3">
+            <div class="col-md-4 mb-2">
+                <input type="text" id="filtro-nome" class="form-control" placeholder="Filtrar por nome...">
+            </div>
+            <div class="col-md-4 mb-2">
+                <select id="filtro-status" class="form-select">
+                    <option value="">Todos os status</option>
+                    <option value="PENDENTE">Pendente</option>
+                    <option value="APROVADA">Aprovada</option>
+                    <option value="RECUSADA">Recusada</option>
+                    <option value="CANCELADA">Cancelada</option>
+                    <option value="DISPONIVEL">Disponível</option>
+                </select>
+            </div>
+            <div class="col-md-4 mb-2">
+                <select id="filtro-categoria" class="form-select">
+                    <option value="">Todas as categorias</option>
+                    <option value="DOAÇÃO">Doação</option>
+                    <option value="TROCA">Troca</option>
+                </select>
+            </div>
+        </div>
+
         <div class="row g-4" id="produtos-container">
             <!-- Os cards dos produtos serão inseridos aqui pelo JS -->
         </div>

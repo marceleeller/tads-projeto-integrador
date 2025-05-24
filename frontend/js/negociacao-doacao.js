@@ -16,6 +16,14 @@ document.addEventListener('DOMContentLoaded', async () => {
         return;
     }
 
+    const nomeUsuario = localStorage.getItem('nome_usuario');
+    if (nomeUsuario) {
+        const spanBemVindo = document.getElementById('bem-vindo-usuario');
+        if (spanBemVindo) {
+            spanBemVindo.textContent = `Bem-vindo(a), ${nomeUsuario}`;
+        }
+    }
+
     try {
         const response = await fetch(`${CONFIG.API_BASE_URL}/negociacao/${id}`, {
             headers: {
@@ -28,8 +36,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             return;
         }
         const data = await response.json();
-
-
+        console.log(data);
 
         // Preencher dados do produto
         const produto = data.solicitacao.produto_desejado;
@@ -40,6 +47,19 @@ document.addEventListener('DOMContentLoaded', async () => {
             document.getElementById('product-image').src = `${CONFIG.API_BASE_URL.replace('/api', '')}/${produto.imagens[0].url_imagem}`;
         } else {
             document.getElementById('product-image').src = '../assets/placeholder.png';
+        }
+
+        // Preencher endereço do produto
+        const endereco = produto.endereco;
+        const enderecoDiv = document.getElementById('product-address');
+        if (endereco && enderecoDiv) {
+            enderecoDiv.innerHTML = `
+                <br>
+                <strong>Endereço do produto:</strong><br>
+                ${endereco.rua}, ${endereco.numero}${endereco.complemento ? ' - ' + endereco.complemento : ''}<br>
+                ${endereco.bairro} - ${endereco.cidade}/${endereco.estado}<br>
+                CEP: ${endereco.cep}
+            `;
         }
 
         // Preencher mensagens do chat
@@ -145,7 +165,7 @@ async function acaoSolicitacao(idSolicitacao, novoStatus) {
         const result = await resp.json();
         if (resp.ok) {
             alert('Solicitação atualizada com sucesso!');
-            // Atualize a tela conforme necessário
+            document.dispatchEvent(new Event('DOMContentLoaded'));
         } else {
             alert(result.msg || 'Erro ao atualizar solicitação.');
         }
@@ -194,8 +214,10 @@ async function finalizeDonation() {
         const resp = await fetch(`${CONFIG.API_BASE_URL}/solicitacao/${window.idSolicitacaoAtual}/pendente`, {
             method: 'PUT',
             headers: {
-                'Authorization': 'Bearer ' + token
-            }
+                'Authorization': 'Bearer ' + token,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({})
         });
         if (resp.ok) {
             alert('Solicitação realizada com sucesso!');

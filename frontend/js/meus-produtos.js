@@ -32,27 +32,58 @@ document.addEventListener('DOMContentLoaded', async () => {
             container.innerHTML = '<div class="alert alert-info">Você ainda não cadastrou produtos.</div>';
             return;
         }
+console.log(produtos);
+        const idUsuarioLogado = localStorage.getItem('id_usuario');
 
-        // Monta uma lista de cards: um para cada solicitação em status permitido, e um para produtos sem solicitação
+        // 1. Coletar IDs de produtos ofertados em negociações ativas
+        const produtosOfertadosEmNegociacaoAtiva = new Set();
+        produtos.forEach(produto => {
+            if (produto.solicitacoes && produto.solicitacoes.length > 0) {
+                produto.solicitacoes.forEach(solicitacao => {
+                    if (
+                        ['PENDENTE', 'APROVADA'].includes(solicitacao.status) &&
+                        solicitacao.produtos_ofertados &&
+                        solicitacao.produtos_ofertados.length > 0
+                    ) {
+                        solicitacao.produtos_ofertados.forEach(idProd => {
+                            produtosOfertadosEmNegociacaoAtiva.add(idProd);
+                        });
+                    }
+                });
+            }
+        });
+
+        // 2. Monta a lista de cards
         const cards = [];
         produtos.forEach(produto => {
             if (!produto.solicitacoes || produto.solicitacoes.length === 0) {
-                cards.push({ produto, solicitacao: null });
+                // Só adiciona como editável se for do usuário logado E não está em negociação ativa
+                if (
+                    produto.id_usuario == idUsuarioLogado &&
+                    !produtosOfertadosEmNegociacaoAtiva.has(produto.id_produto)
+                ) {
+                    cards.push({ produto, solicitacao: null });
+                }
             } else {
+                // Adiciona todas as solicitações que não são PROCESSANDO
                 produto.solicitacoes.forEach(solicitacao => {
-                    // Exibe editar/excluir para PROCESSANDO, CANCELADA, RECUSADA
-                    if (
-                        ['PROCESSANDO', 'CANCELADA', 'RECUSADA'].includes(solicitacao.status)
-                    ) {
-                        cards.push({ produto, solicitacao });
-                    }
-                    // Exibe negociação apenas para PENDENTE ou APROVADA
-                    else if (
-                        ['PENDENTE', 'APROVADA'].includes(solicitacao.status)
-                    ) {
+                    if (solicitacao.status !== 'PROCESSANDO') {
                         cards.push({ produto, solicitacao });
                     }
                 });
+
+                // Se todas as solicitações forem RECUSADA ou CANCELADA,
+                // só adiciona como editável se for do usuário logado E não está em negociação ativa
+                const todasRecusadasOuCanceladas = produto.solicitacoes.every(solicitacao =>
+                    solicitacao.status === 'RECUSADA' || solicitacao.status === 'CANCELADA'
+                );
+                if (
+                    todasRecusadasOuCanceladas &&
+                    produto.id_usuario == idUsuarioLogado &&
+                    !produtosOfertadosEmNegociacaoAtiva.has(produto.id_produto)
+                ) {
+                    cards.push({ produto, solicitacao: null });
+                }
             }
         });
 
@@ -111,25 +142,28 @@ document.addEventListener('DOMContentLoaded', async () => {
             }
 
             if (solicitacao) {
-                // Se status for PENDENTE ou APROVADA, mostra botão de negociação
+                const isTroca = produto.categoria && (
+                    produto.categoria.tipo === 'TROCA' ||
+                    (produto.categoria.nome_categoria && produto.categoria.nome_categoria.toUpperCase().includes('TROCA'))
+                );
+                const urlNegociacao = isTroca
+                    ? `negociacao-troca.html?id=${produto.id_produto}`
+                    : `negociacao-doacao.html?id=${produto.id_produto}`;
+
                 if (['PENDENTE', 'APROVADA'].includes(solicitacao.status)) {
-                    const isTroca = produto.categoria && (
-                        produto.categoria.tipo === 'TROCA' ||
-                        (produto.categoria.nome_categoria && produto.categoria.nome_categoria.toUpperCase().includes('TROCA'))
-                    );
-                    const urlNegociacao = isTroca
-                        ? `negociacao-troca.html?id=${produto.id_produto}`
-                        : `negociacao-doacao.html?id=${produto.id_produto}`;
                     botoes = `<a href="${urlNegociacao}" class="btn btn-primary w-100">Ver Negociação</a>`;
                     espacoAcimaBotoes = '';
+                } else {
+                    botoes = `<div style="height:38px"></div>`;
+                    espacoAcimaBotoes = '';
                 }
-                // Se status for PROCESSANDO, CANCELADA ou RECUSADA, mantém editar/excluir
-                // (nada a fazer, já está o padrão)
             }
 
             let dataSolicitacaoHtml = '';
             if (solicitacao && solicitacao.data_solicitacao) {
-                const data = new Date(solicitacao.data_solicitacao);
+                let data = new Date(solicitacao.data_solicitacao);
+                // Corrige para o horário de Brasília subtraindo 3 horas
+                data.setHours(data.getHours() - 3);
                 const dataFormatada = data.toLocaleString('pt-BR');
                 dataSolicitacaoHtml = `<div><small class="text-muted" style="font-size: 0.85em;">Solicitação em: ${dataFormatada}</small></div>`;
             }

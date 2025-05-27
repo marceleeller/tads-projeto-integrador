@@ -418,7 +418,11 @@ async function acaoSolicitacao(idSolicitacao, novoStatus) {
         const result = await resp.json();
         if (resp.ok) {
             alert('Solicitação atualizada com sucesso!');
-            window.location.reload();
+            if (novoStatus === 'RECUSADA') {
+                window.location.href = 'meus-produtos.html';
+            } else {
+                window.location.reload();
+            }
         } else {
             alert(result.msg || 'Erro ao atualizar solicitação.');
         }

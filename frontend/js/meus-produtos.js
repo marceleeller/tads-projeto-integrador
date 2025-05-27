@@ -33,14 +33,23 @@ document.addEventListener('DOMContentLoaded', async () => {
             return;
         }
 
-        // Monta uma lista de cards: um para cada solicitação != PROCESSANDO, e um para produtos sem solicitação
+        // Monta uma lista de cards: um para cada solicitação em status permitido, e um para produtos sem solicitação
         const cards = [];
         produtos.forEach(produto => {
             if (!produto.solicitacoes || produto.solicitacoes.length === 0) {
                 cards.push({ produto, solicitacao: null });
             } else {
                 produto.solicitacoes.forEach(solicitacao => {
-                    if (solicitacao.status !== 'PROCESSANDO') {
+                    // Exibe editar/excluir para PROCESSANDO, CANCELADA, RECUSADA
+                    if (
+                        ['PROCESSANDO', 'CANCELADA', 'RECUSADA'].includes(solicitacao.status)
+                    ) {
+                        cards.push({ produto, solicitacao });
+                    }
+                    // Exibe negociação apenas para PENDENTE ou APROVADA
+                    else if (
+                        ['PENDENTE', 'APROVADA'].includes(solicitacao.status)
+                    ) {
                         cards.push({ produto, solicitacao });
                     }
                 });
@@ -102,21 +111,20 @@ document.addEventListener('DOMContentLoaded', async () => {
             }
 
             if (solicitacao) {
-                const isTroca = produto.categoria && (
-                    produto.categoria.tipo === 'TROCA' ||
-                    (produto.categoria.nome_categoria && produto.categoria.nome_categoria.toUpperCase().includes('TROCA'))
-                );
-                const urlNegociacao = isTroca
-                    ? `negociacao-troca.html?id=${produto.id_produto}`
-                    : `negociacao-doacao.html?id=${produto.id_produto}`;
-
+                // Se status for PENDENTE ou APROVADA, mostra botão de negociação
                 if (['PENDENTE', 'APROVADA'].includes(solicitacao.status)) {
+                    const isTroca = produto.categoria && (
+                        produto.categoria.tipo === 'TROCA' ||
+                        (produto.categoria.nome_categoria && produto.categoria.nome_categoria.toUpperCase().includes('TROCA'))
+                    );
+                    const urlNegociacao = isTroca
+                        ? `negociacao-troca.html?id=${produto.id_produto}`
+                        : `negociacao-doacao.html?id=${produto.id_produto}`;
                     botoes = `<a href="${urlNegociacao}" class="btn btn-primary w-100">Ver Negociação</a>`;
                     espacoAcimaBotoes = '';
-                } else {
-                    botoes = `<div style="height:38px"></div>`;
-                    espacoAcimaBotoes = '';
                 }
+                // Se status for PROCESSANDO, CANCELADA ou RECUSADA, mantém editar/excluir
+                // (nada a fazer, já está o padrão)
             }
 
             let dataSolicitacaoHtml = '';

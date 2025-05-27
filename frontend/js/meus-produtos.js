@@ -32,7 +32,6 @@ document.addEventListener('DOMContentLoaded', async () => {
             container.innerHTML = '<div class="alert alert-info">Você ainda não cadastrou produtos.</div>';
             return;
         }
-console.log(produtos);
         const idUsuarioLogado = localStorage.getItem('id_usuario');
 
         // 1. Coletar IDs de produtos ofertados em negociações ativas

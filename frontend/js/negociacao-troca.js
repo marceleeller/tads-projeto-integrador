@@ -38,7 +38,6 @@ document.addEventListener('DOMContentLoaded', async () => {
             return;
         }
         data = await response.json();
-        console.log(data);
     } catch (error) {
         alert('Erro ao conectar ao servidor.');
         window.location.href = 'pagina-inicial.html';

@@ -36,7 +36,6 @@ document.addEventListener('DOMContentLoaded', async () => {
             return;
         }
         const data = await response.json();
-        console.log(data);
 
         // Preencher dados do produto
         const produto = data.solicitacao.produto_desejado;

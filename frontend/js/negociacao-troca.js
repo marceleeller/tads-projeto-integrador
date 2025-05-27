@@ -38,7 +38,6 @@ document.addEventListener('DOMContentLoaded', async () => {
             return;
         }
         data = await response.json();
-        console.log(data);
     } catch (error) {
         alert('Erro ao conectar ao servidor.');
         window.location.href = 'pagina-inicial.html';
@@ -418,7 +417,11 @@ async function acaoSolicitacao(idSolicitacao, novoStatus) {
         const result = await resp.json();
         if (resp.ok) {
             alert('Solicitação atualizada com sucesso!');
-            window.location.reload();
+            if (novoStatus === 'RECUSADA') {
+                window.location.href = 'meus-produtos.html';
+            } else {
+                window.location.reload();
+            }
         } else {
             alert(result.msg || 'Erro ao atualizar solicitação.');
         }

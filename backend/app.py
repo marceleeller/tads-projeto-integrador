@@ -158,11 +158,21 @@ def obter_produtos_usuario():
     except ValueError as e:
         return jsonify({'msg': str(e)}), 400 
 
-    # Produtos cadastrados pelo usuário
+    # Busca todos os produtos do usuário que estão como ofertados em solicitações PENDENTE ou APROVADA
+    produtos_ofertados_em_negociacao = db.session.query(SolicitacaoProdutoOfertado.id_produto).\
+        join(Produto, SolicitacaoProdutoOfertado.id_produto == Produto.id_produto).\
+        join(Solicitacao, SolicitacaoProdutoOfertado.id_solicitacao == Solicitacao.id_solicitacao).\
+        filter(
+            Produto.id_usuario == current_user_id,
+            Solicitacao.status.in_([StatusSolicitacao.PENDENTE, StatusSolicitacao.APROVADA])
+        ).distinct().all()
+    ids_produtos_ofertados_em_negociacao = {row[0] for row in produtos_ofertados_em_negociacao}
+
+    # Produtos cadastrados pelo usuário, exceto os que estão em negociação como ofertados
     produtos_cadastrados = Produto.query.filter_by(id_usuario=current_user_id).all()
     produtos_response = []
 
-    # Adiciona produtos cadastrados pelo usuário
+    # Adiciona produtos cadastrados pelo usuário (dono)
     for produto in produtos_cadastrados:
         produto_dict = produto.to_dict(include_owner=True)
         solicitacoes = Solicitacao.query.filter_by(
@@ -173,13 +183,17 @@ def obter_produtos_usuario():
                 'id_solicitacao': s.id_solicitacao,
                 'status': s.status.value,
                 'id_usuario_solicitante': s.id_usuario_solicitante,
-                'data_solicitacao': s.data_solicitacao.isoformat() if s.data_solicitacao else None
+                'data_solicitacao': s.data_solicitacao.isoformat() if s.data_solicitacao else None,
+                # Adiciona os produtos ofertados na troca (se houver)
+                'produtos_ofertados': [
+                    rel.id_produto for rel in SolicitacaoProdutoOfertado.query.filter_by(id_solicitacao=s.id_solicitacao).all()
+                ]
             }
             for s in solicitacoes
         ]
         produtos_response.append(produto_dict)
 
-    # Produtos em que o usuário está envolvido como solicitante (mas não é o dono)
+    # Adiciona produtos pelos quais o usuário fez solicitação (mas não é o dono)
     solicitacoes_usuario = Solicitacao.query.filter_by(id_usuario_solicitante=current_user_id).all()
     produtos_solicitados_ids = set()
     for s in solicitacoes_usuario:
@@ -194,7 +208,11 @@ def obter_produtos_usuario():
                     'id_solicitacao': sol.id_solicitacao,
                     'status': sol.status.value,
                     'id_usuario_solicitante': sol.id_usuario_solicitante,
-                    'data_solicitacao': sol.data_solicitacao.isoformat() if sol.data_solicitacao else None
+                    'data_solicitacao': sol.data_solicitacao.isoformat() if sol.data_solicitacao else None,
+                    # Adiciona os produtos ofertados na troca (se houver)
+                    'produtos_ofertados': [
+                        rel.id_produto for rel in SolicitacaoProdutoOfertado.query.filter_by(id_solicitacao=s.id_solicitacao).all()
+                    ]
                 }
                 for sol in solicitacoes
             ]

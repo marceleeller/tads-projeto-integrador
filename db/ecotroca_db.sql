@@ -104,7 +104,7 @@ CREATE TABLE IF NOT EXISTS ecotroca.SOLICITACAO (
     status ENUM('PROCESSANDO', 'PENDENTE', 'APROVADA', 'RECUSADA', 'CANCELADA') NOT NULL,
     data_solicitacao DATETIME NOT NULL,
     id_usuario_solicitante INT NOT NULL,
-    id_produto_desejado INT NOT NULL,
+    id_produto_desejado INT NULL, 
     id_transacao INT NULL,
     PRIMARY KEY (id_solicitacao),
     INDEX fk_SOLICITACAO_USUARIO1_idx (id_usuario_solicitante ASC),
@@ -115,11 +115,11 @@ CREATE TABLE IF NOT EXISTS ecotroca.SOLICITACAO (
         ON DELETE NO ACTION ON UPDATE NO ACTION,
     CONSTRAINT fk_SOLICITACAO_PRODUTO_DESEJADO FOREIGN KEY (id_produto_desejado)
         REFERENCES ecotroca.PRODUTO (id_produto)
-        ON DELETE NO ACTION ON UPDATE NO ACTION,
+        ON DELETE SET NULL ON UPDATE NO ACTION,
     CONSTRAINT fk_SOLICITACAO_TRANSACAO FOREIGN KEY (id_transacao)
         REFERENCES ecotroca.TRANSACAO (id_transacao)
         ON DELETE NO ACTION ON UPDATE NO ACTION
-)  ENGINE=INNODB;
+) ENGINE=INNODB;
 
 -- -----------------------------------------------------
 -- Table ecotroca.MENSAGEM

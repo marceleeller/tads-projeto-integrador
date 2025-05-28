@@ -48,6 +48,11 @@
                                 </a>
                             </li>
                             <li class="nav-item">
+                                <a class="nav-link text-white" href="./minhas-negociacoes.html"> 
+                                    <i class="fas fa-handshake"></i> Minhas Negociações
+                                </a>
+                            </li>
+                            <li class="nav-item">
                                 <button id="logout" class="btn btn-danger nav-link text-white">
                                     <i class="fas fa-sign-out-alt"></i> Sair
                                 </button>
@@ -69,13 +74,9 @@
                 <input type="text" id="filtro-nome" class="form-control" placeholder="Filtrar por nome...">
             </div>
             <div class="col-md-4 mb-2">
-                <select id="filtro-status" class="form-select">
-                    <option value="">Todos os status</option>
-                    <option value="PENDENTE">Pendente</option>
-                    <option value="APROVADA">Aprovada</option>
-                    <option value="RECUSADA">Recusada</option>
-                    <option value="CANCELADA">Cancelada</option>
-                    <option value="DISPONIVEL">Disponível</option>
+                <select id="filtro-status-produto" class="form-select"> <option value="">Todos os status</option>
+                    <option value="DISPONIVEL">Disponível (sem propostas)</option>
+                    <option value="PENDENTE">Com Propostas Pendentes</option>
                 </select>
             </div>
             <div class="col-md-4 mb-2">

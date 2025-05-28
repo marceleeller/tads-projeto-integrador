@@ -152,75 +152,95 @@ def obter_todos_produtos_ativos():
 # GET - Obter todos produtos vinculados ao ID do usuário (logado)
 @app.route('/produtos/usuario', methods=['GET'])
 @jwt_required()
-def obter_produtos_usuario():
+def obter_meus_produtos_gerenciaveis(): # Nome pode ser mais descritivo
     try:
         current_user_id = get_current_user_id_from_token()
     except ValueError as e:
-        return jsonify({'msg': str(e)}), 400 
+        return jsonify({'msg': str(e)}), 400
 
-    # Busca todos os produtos do usuário que estão como ofertados em solicitações PENDENTE ou APROVADA
-    produtos_ofertados_em_negociacao = db.session.query(SolicitacaoProdutoOfertado.id_produto).\
-        join(Produto, SolicitacaoProdutoOfertado.id_produto == Produto.id_produto).\
-        join(Solicitacao, SolicitacaoProdutoOfertado.id_solicitacao == Solicitacao.id_solicitacao).\
-        filter(
-            Produto.id_usuario == current_user_id,
-            Solicitacao.status.in_([StatusSolicitacao.PENDENTE, StatusSolicitacao.APROVADA])
-        ).distinct().all()
-    ids_produtos_ofertados_em_negociacao = {row[0] for row in produtos_ofertados_em_negociacao}
+    # Subconsulta: IDs dos produtos do usuário que foram DESEJADOS e a negociação APROVADA
+    # (ou seja, o usuário "perdeu" este produto porque alguém o solicitou e ele aprovou)
+    stmt_desejados_aprovados = db.select(Produto.id_produto)\
+        .join(Solicitacao, Produto.id_produto == Solicitacao.id_produto_desejado)\
+        .where(Produto.id_usuario == current_user_id, Solicitacao.status == StatusSolicitacao.APROVADA)\
+        .distinct()
+    ids_desejados_aprovados = {row[0] for row in db.session.execute(stmt_desejados_aprovados).fetchall()}
 
-    # Produtos cadastrados pelo usuário, exceto os que estão em negociação como ofertados
-    produtos_cadastrados = Produto.query.filter_by(id_usuario=current_user_id).all()
-    produtos_response = []
+    # Subconsulta: IDs dos produtos do usuário que foram OFERTADOS e a negociação APROVADA
+    # (ou seja, o usuário "perdeu" este produto porque o ofertou em uma troca bem-sucedida)
+    stmt_ofertados_aprovados = db.select(Produto.id_produto)\
+        .join(SolicitacaoProdutoOfertado, Produto.id_produto == SolicitacaoProdutoOfertado.id_produto)\
+        .join(Solicitacao, SolicitacaoProdutoOfertado.id_solicitacao == Solicitacao.id_solicitacao)\
+        .where(Produto.id_usuario == current_user_id, Solicitacao.status == StatusSolicitacao.APROVADA)\
+        .distinct()
+    ids_ofertados_aprovados = {row[0] for row in db.session.execute(stmt_ofertados_aprovados).fetchall()}
 
-    # Adiciona produtos cadastrados pelo usuário (dono)
-    for produto in produtos_cadastrados:
-        produto_dict = produto.to_dict(include_owner=True)
-        solicitacoes = Solicitacao.query.filter_by(
-            id_produto_desejado=produto.id_produto
-        ).order_by(Solicitacao.id_solicitacao.desc()).all()
-        produto_dict['solicitacoes'] = [
-            {
-                'id_solicitacao': s.id_solicitacao,
-                'status': s.status.value,
-                'id_usuario_solicitante': s.id_usuario_solicitante,
-                'data_solicitacao': s.data_solicitacao.isoformat() if s.data_solicitacao else None,
-                # Adiciona os produtos ofertados na troca (se houver)
-                'produtos_ofertados': [
-                    rel.id_produto for rel in SolicitacaoProdutoOfertado.query.filter_by(id_solicitacao=s.id_solicitacao).all()
-                ]
-            }
-            for s in solicitacoes
+    ids_produtos_ja_transacionados = ids_desejados_aprovados.union(ids_ofertados_aprovados)
+
+    # Buscar produtos do usuário que NÃO estão na lista de transacionados
+    query_produtos_gerenciaveis = Produto.query.filter(
+        Produto.id_usuario == current_user_id,
+        Produto.id_produto.notin_(ids_produtos_ja_transacionados)
+    ).options( # Eager loading para performance
+        selectinload(Produto.imagens),
+        selectinload(Produto.categoria),
+        selectinload(Produto.solicitacoes_para_este_produto) # Para pegar solicitações pendentes
+    )
+    
+    produtos_gerenciaveis = query_produtos_gerenciaveis.all()
+
+    resultado_final = []
+    for produto in produtos_gerenciaveis:
+        produto_dict = produto.to_dict(include_owner=True, include_imagens=True, include_categoria=True)
+        
+        # Adicionar informações sobre solicitações PENDENTES para este produto
+        # (onde ele é o produto desejado)
+        solicitacoes_pendentes = [
+            s.to_dict() for s in produto.solicitacoes_para_este_produto 
+            if s.status == StatusSolicitacao.PENDENTE
         ]
-        produtos_response.append(produto_dict)
+        produto_dict['solicitacoes_pendentes_nele'] = solicitacoes_pendentes
+        resultado_final.append(produto_dict)
+        
+    return jsonify(resultado_final), 200
 
-    # Adiciona produtos pelos quais o usuário fez solicitação (mas não é o dono)
-    solicitacoes_usuario = Solicitacao.query.filter_by(id_usuario_solicitante=current_user_id).all()
-    produtos_solicitados_ids = set()
-    for s in solicitacoes_usuario:
-        produto = Produto.query.get(s.id_produto_desejado)
-        if produto and produto.id_usuario != current_user_id and produto.id_produto not in produtos_solicitados_ids:
-            produto_dict = produto.to_dict(include_owner=True)
-            solicitacoes = Solicitacao.query.filter_by(
-                id_produto_desejado=produto.id_produto
-            ).order_by(Solicitacao.id_solicitacao.desc()).all()
-            produto_dict['solicitacoes'] = [
-                {
-                    'id_solicitacao': sol.id_solicitacao,
-                    'status': sol.status.value,
-                    'id_usuario_solicitante': sol.id_usuario_solicitante,
-                    'data_solicitacao': sol.data_solicitacao.isoformat() if sol.data_solicitacao else None,
-                    # Adiciona os produtos ofertados na troca (se houver)
-                    'produtos_ofertados': [
-                        rel.id_produto for rel in SolicitacaoProdutoOfertado.query.filter_by(id_solicitacao=s.id_solicitacao).all()
-                    ]
-                }
-                for sol in solicitacoes
-            ]
-            produtos_response.append(produto_dict)
-            produtos_solicitados_ids.add(produto.id_produto)
+# GET - Obter todas as negociacoes vinculadas ao ID do usuário (logado)
+@app.route('/usuario/negociacoes', methods=['GET'])
+@jwt_required()
+def obter_minhas_negociacoes():
+    try:
+        current_user_id = get_current_user_id_from_token()
+    except ValueError as e:
+        return jsonify({'msg': str(e)}), 400
 
-    return jsonify(produtos_response), 200
-
+    # Usamos db.or_ para combinar as duas condições
+    negociacoes_query = Solicitacao.query.join(
+        Produto, Solicitacao.id_produto_desejado == Produto.id_produto
+    ).filter(
+        db.or_( # Lembre de importar or_ de sqlalchemy ou usar db.or_
+            Solicitacao.id_usuario_solicitante == current_user_id, # Ele é o solicitante
+            Produto.id_usuario == current_user_id                  # Ele é o dono do produto desejado
+        )
+    ).options(
+        # Eager loading para carregar todos os dados relacionados eficientemente
+        selectinload(Solicitacao.usuario_solicitante_obj),
+        selectinload(Solicitacao.produto_desejado_obj).selectinload(Produto.proprietario),
+        selectinload(Solicitacao.produto_desejado_obj).selectinload(Produto.imagens),
+        selectinload(Solicitacao.produto_desejado_obj).selectinload(Produto.categoria),
+        selectinload(Solicitacao.produtos_ofertados).selectinload(Produto.imagens),
+        selectinload(Solicitacao.produtos_ofertados).selectinload(Produto.proprietario), # Se precisar do dono dos produtos ofertados
+        selectinload(Solicitacao.produtos_ofertados).selectinload(Produto.categoria)  # E categoria dos ofertados
+    ).order_by(Solicitacao.data_solicitacao.desc())
+    
+    negociacoes = negociacoes_query.all()
+    
+    # O método to_dict da Solicitacao já deve incluir 'include_produtos_details=True'
+    # para trazer os detalhes dos produtos envolvidos.
+    # Certifique-se que Solicitacao.to_dict() e Produto.to_dict() carregam
+    # as informações do proprietário do produto e do solicitante.
+    resultado = [s.to_dict(include_produtos_details=True) for s in negociacoes]
+    
+    return jsonify(resultado), 200
 
 # GET - Obter produto pelo ID
 @app.route('/produto/<int:id_produto>', methods=['GET'])
@@ -413,12 +433,18 @@ def deletar_produto(id_produto):
     if produto.id_usuario != current_user_id:
         return jsonify({'msg': 'Acesso não autorizado para deletar este produto'}), 403
 
-    solicitacoes_ativas = Solicitacao.query.filter(
-        (Solicitacao.id_produto_desejado == id_produto) | (Solicitacao.id_produto_ofertado == id_produto),
-        Solicitacao.status.in_([StatusSolicitacao.PENDENTE, StatusSolicitacao.APROVADA])
+    solicitacao_como_desejado_ativa = Solicitacao.query.filter(
+    Solicitacao.id_produto_desejado == id_produto,
+    Solicitacao.status.in_([StatusSolicitacao.PENDENTE, StatusSolicitacao.APROVADA])
     ).first()
 
-    if solicitacoes_ativas:
+    # Verifica se o produto está ofertado em alguma solicitação ativa
+    solicitacao_como_ofertado_ativa = db.session.query(Solicitacao).join(SolicitacaoProdutoOfertado).\
+        filter(SolicitacaoProdutoOfertado.id_produto == id_produto,
+            Solicitacao.status.in_([StatusSolicitacao.PENDENTE, StatusSolicitacao.APROVADA])
+        ).first()
+
+    if solicitacao_como_desejado_ativa or solicitacao_como_ofertado_ativa:
         return jsonify({'msg': 'Produto não pode ser deletado pois está envolvido em negociações ativas.'}), 409
 
     # Remove imagens do diretório físico

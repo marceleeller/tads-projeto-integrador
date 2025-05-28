@@ -6,9 +6,6 @@
   </a>
 </p>
 
-<h1 align="center">
-    <img src="./Documentacao/img/banner.png" alt="Banner do Projeto Integrador" />
-</h1>
 
 <h4 align="center">
    🌱 Projeto Integrador - Ecotroca 🌱
@@ -20,8 +17,7 @@
  <a href="#-backend">Backend</a> •
  <a href="#-frontend">Frontend</a> •
  <a href="#-como-executar">Como executar</a> •
- <a href="#-tecnologias">Tecnologias</a> •
- <a href="#-contribuidores">Contribuidores</a>
+ <a href="#-tecnologias">Tecnologias</a>
 </p>
 
 ---
@@ -78,7 +74,7 @@ pip install -r requirements.txt
 FLASK_APP=app.py
 FLASK_DEBUG=1
 DATABASE_URL="mysql+pymysql://USUARIO:SENHA@HOST:PORTA/NOME_DO_BANCO"
-# Exemplo: DATABASE_URL="mysql+pymysql://jv:asdfg@127.0.0.1:3306/integrador"
+# Exemplo: DATABASE_URL="mysql+pymysql://jv:asdfg@127.0.0.1:3306/ecotroca"
 JWT_SECRET_KEY="SUA_CHAVE_SECRETA_AQUI"
 ```
 
@@ -96,7 +92,7 @@ JWT_SECRET_KEY="SUA_CHAVE_SECRETA_AQUI"
 ## 🌐 Frontend
 
 O frontend é totalmente baseado em arquivos estáticos (HTML, CSS e JavaScript puro), localizado na pasta `frontend/`.  
-Utilizamos o [Bootstrap](https://getbootstrap.com/) via CDN para facilitar a estilização e responsividade das páginas.
+Utilizamos o Bootstrap via CDN para facilitar a estilização e responsividade das páginas.
 
 #### Como acessar
 
@@ -105,12 +101,6 @@ Utilizamos o [Bootstrap](https://getbootstrap.com/) via CDN para facilitar a est
 
 2. **Atenção:**  
    - Para que todas as funcionalidades funcionem corretamente (login, cadastro, negociações), o backend precisa estar rodando.
-   - Para evitar possíveis problemas de CORS ao acessar diretamente pelo navegador, você pode rodar um servidor HTTP simples:
-     ```bash
-     # No Windows (PowerShell) dentro da pasta frontend:
-     python -m http.server 8080
-     ```
-     Depois, acesse `http://localhost:8080` no navegador.
 
 #### Estrutura das telas
 
@@ -143,71 +133,11 @@ A API estará disponível em `http://127.0.0.1:5000/`.
 
 ### Frontend
 
-Abra o arquivo `frontend/index.html` no navegador  
-**ou** rode um servidor HTTP local na pasta `frontend` e acesse pelo navegador.
+Abra o arquivo `frontend/index.html` no navegador.
 
 ---
 
 ## 🛠 Tecnologias
 
 - **Backend:** Python, Flask, MySQL, SQLAlchemy, JWT
-- **Frontend:** HTML, CSS, JavaScript, [Bootstrap](https://getbootstrap.com/)
-
----
-
-## 👨‍💻 Contribuidores
-
-<table>
-  <tr>
-    <td align="center">
-      <a href="https://github.com/marceleeller">
-        <img src="https://avatars.githubusercontent.com/u/126519901?v=4" width="100px;" alt="Marcele Eller"/><br>
-        <sub><b>Marcele Eller</b></sub>
-      </a>
-    </td>
-    <td align="center">
-      <a href="https://github.com/grasieletinoco">
-        <img src="https://avatars.githubusercontent.com/u/120054760?v=4" width="100px;" alt="Grasiele Tinoco"/><br>
-        <sub><b>Grasiele Tinoco</b></sub>
-      </a>
-    </td>
-    <td align="center">
-      <a href="https://github.com/isadeop">
-        <img src="https://avatars.githubusercontent.com/u/138228355?v=4" width="100px;" alt="Isadora de Oliveira"/><br>
-        <sub><b>Isadora de Oliveira</b></sub>
-      </a>
-    </td>
-    <td align="center">
-      <a href="https://github.com/JaquelineAPSantos">
-        <img src="https://avatars.githubusercontent.com/u/94487656?v=4" width="100px;" alt="Jaqueline Santos"/><br>
-        <sub><b>Jaqueline Santos</b></sub>
-      </a>
-    </td>
-  </tr>
-  <tr>
-    <td align="center">
-      <a href="https://github.com/PAKell">
-        <img src="https://avatars.githubusercontent.com/u/131540455?v=4" width="100px;" alt="Kelly Pedroso"/><br>
-        <sub><b>Kelly Pedroso</b></sub>
-      </a>
-    </td>
-    <td align="center">
-      <a href="https://github.com/ErickFPrado">
-        <img src="https://media.licdn.com/dms/image/D4D03AQFDqDhMaqWfaA/profile-displayphoto-shrink_400_400/0/1690839347214?e=1712793600&v=beta&t=wJvSdyVOiZUzSlQIwxZcehQ2gRCBfaxd4Rr3DVRZhrA" width="100px;" alt="Erick Prado"/><br>
-        <sub><b>Erick Prado</b></sub>
-      </a>
-    </td>
-    <td align="center">
-      <a href="https://github.com/giperuzzo">
-        <img src="https://avatars.githubusercontent.com/u/127308320?v=4" width="100px;" alt="Gislene Peruzzo"/><br>
-        <sub><b>Gislene Peruzzo</b></sub>
-      </a>
-    </td>
-    <td align="center">
-      <a href="https://github.com/Antoniobarrosdecastro">
-        <img src="https://avatars.githubusercontent.com/u/147821067?v=4" width="100px;" alt="Antonio Barros"/><br>
-        <sub><b>Antonio Barros</b></sub>
-      </a>
-    </td>
-  </tr>
-</table>
+- **Frontend:** HTML, CSS, JavaScript, Bootstrap

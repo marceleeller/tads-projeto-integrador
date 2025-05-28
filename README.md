@@ -1,4 +1,4 @@
-# tads-projeto-integrador
+# Projeto integrador
 Sistema para facilitar a troca e doação de produtos em comunidades de cidades do interior do Tocantins.
 
 ## Backend - Projeto de Trocas e Doações
@@ -44,11 +44,14 @@ Backend da API para o sistema de trocas e doações.
 
 5.  **Banco de Dados MySQL:**
     * Verifique se o MySQL Server está rodando.
-    * Crie o banco de dados (ex: `integrador`) no MySQL se ele não existir:
-        ```sql
-        CREATE DATABASE IF NOT EXISTS integrador;
-        ```
-    * **Para criar as tabelas:** Descomente a linha `create_tables()` no final do arquivo `app.py`, rode a aplicação uma vez (próximo passo), e depois comente a linha novamente.
+    * Crie o banco de dados e as tabelas utilizando o script SQL fornecido no repositório:
+        1. Acesse o MySQL pelo terminal ou por uma ferramenta gráfica (ex: MySQL Workbench).
+        2. Execute o script localizado em `/db/ecotroca_db.sql` para criar o banco de dados e todas as tabelas necessárias:
+            ```bash
+            mysql -u USUARIO -p < db/ecotroca_db.sql
+            ```
+            Substitua `USUARIO` pelo seu usuário do MySQL.
+        3. O script irá criar o banco de dados (ex: `ecotroca`) e todas as tabelas automaticamente.
 
 ### Executando a Aplicação
 
@@ -59,4 +62,28 @@ Backend da API para o sistema de trocas e doações.
     ```
 3.  A API estará disponível em `http://127.0.0.1:5000/`.
 
----
+## Frontend - Como Executar
+
+O frontend deste projeto é totalmente baseado em arquivos estáticos (HTML, CSS e JavaScript puro), localizados na pasta `frontend/`. Não é necessário instalar dependências ou rodar comandos npm.
+
+> **Observação:** Utilizamos o [Bootstrap](https://getbootstrap.com/) via CDN para facilitar a estilização e responsividade das páginas.
+
+#### Como acessar
+
+1. **Abra o arquivo `index.html`**  
+   Navegue até a pasta `frontend/` e abra o arquivo `index.html` em seu navegador de preferência.
+
+2. **Atenção:**  
+   - Para que todas as funcionalidades funcionem corretamente (login, cadastro, negociações), o backend precisa estar rodando.
+   
+
+#### Estrutura das telas
+
+- `index.html`: Tela de login
+- `pages/pagina-inicial.html`: Página principal com listagem de produtos
+- `pages/cadastro.html`: Cadastro de usuário
+- `pages/cadastro-produto.html`: Cadastro de produto
+- `pages/meus-produtos.html`: Gerenciamento dos produtos do usuário
+- `pages/negociacao-troca.html` e `pages/negociacao-doacao.html`: Telas de negociação
+
+Os arquivos JavaScript responsáveis pela lógica estão na pasta `js/` e o CSS em `style/style.css`.
